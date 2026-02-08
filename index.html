@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（円柱 + 正 N/M）</title>
+  <title>3D ストリングアート（正 N/M・円柱ガイド）</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -15,7 +15,6 @@
       --btnBg: rgba(255,255,255,.06);
       --btnBgHover: rgba(255,255,255,.10);
       --btnBorder: rgba(255,255,255,.14);
-      --card: rgba(255,255,255,.04);
       --inputBg: rgba(0,0,0,.25);
     }
     *{ box-sizing:border-box; }
@@ -108,8 +107,10 @@
       height:100%;
       display:block;
       cursor:grab;
-      touch-action: none; /* ← これでホイール/タッチが奪われにくい */
+      touch-action: none; /* wheel/touchを奪われにくくする */
     }
+    #stage.dragging{ cursor:grabbing; }
+
     .hud{
       position:absolute;
       left:12px; top:12px;
@@ -138,7 +139,7 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <h1>3D ストリングアート（透明円柱 + 正 N/M）</h1>
+    <h1>3D ストリングアート（正 N/M）</h1>
     <div class="desc">
       上面・底面の円周上に <b>N</b> 等分点（ピン）を置き，上面の点 <b>i</b> から底面の点 <b>f(i)</b> へ糸（線）を張ります。<br/>
       基本は <b>f(i)=i+M (mod N)</b>。フィルタ（偶数/奇数/剰余）で「使う点」を制限できます。<br/>
@@ -231,19 +232,8 @@
 
       <div class="row">
         <div class="field">
-          <div class="label">糸の太さ（※Lineでは環境依存）</div>
-          <input id="inLineW" type="number" min="0.5" step="0.5" value="1.5" />
-        </div>
-        <div class="field">
           <div class="label">アニメ時間（秒）</div>
           <input id="inAnimT" type="number" min="0.2" step="0.1" value="7.0" />
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="field">
-          <div class="label">円柱の透明度（0〜1）</div>
-          <input id="rngCyl" type="range" min="0" max="1" step="0.01" value="0.18" />
         </div>
         <div class="field">
           <div class="label">テーマ</div>
@@ -255,9 +245,8 @@
       </div>
 
       <div class="tiny">
-        ・操作：左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム<br/>
-        ・CDNがブロックされても動くようにフォールバック読み込みを入れています。<br/>
-        ・太さを確実に効かせるなら Tube 化が必要（次段階で対応可）。
+        操作：左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム（OrbitControls不要）<br/>
+        ※円柱本体は表示せず、上面/底面の円ガイドだけ描きます。
       </div>
     </div>
 
@@ -297,26 +286,14 @@ window.addEventListener("load", async () => {
       "https://unpkg.com/three@0.160.0/build/three.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"
     ]);
-
-    hud.textContent = "OrbitControls を読み込み中…";
-    let controlsOk = true;
-    try {
-      await loadScriptWithFallback([
-        "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js",
-        "https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"
-      ]);
-    } catch (e) {
-      controlsOk = false;
-    }
-
-    startApp({ controlsOk, threeUrl });
+    startApp({ threeUrl });
   } catch (e) {
     hud.textContent = "起動失敗: CDNがブロックされている可能性があります（学校Wi-Fiなど）。";
     console.error(e);
   }
 });
 
-function startApp({ controlsOk, threeUrl }){
+function startApp({ threeUrl }){
   const hud = document.getElementById("hud");
 
   // -----------------------------
@@ -388,15 +365,16 @@ function startApp({ controlsOk, threeUrl }){
   const inBotR = document.getElementById("inBotR");
   const colLine = document.getElementById("colLine");
   const colPin = document.getElementById("colPin");
-  const inLineW = document.getElementById("inLineW"); // NOTE: Line太さは環境依存
   const inAnimT = document.getElementById("inAnimT");
-  const rngCyl = document.getElementById("rngCyl");
   const selTheme = document.getElementById("selTheme");
 
   const btnApply = document.getElementById("btnApply");
   const btnAnim = document.getElementById("btnAnim");
   const btnReset = document.getElementById("btnReset");
   const btnShot  = document.getElementById("btnShot");
+
+  // 右クリックメニューでパンが邪魔されるのを防ぐ
+  cv.addEventListener("contextmenu", (e)=>e.preventDefault());
 
   // -----------------------------
   // Three.js scene
@@ -410,56 +388,16 @@ function startApp({ controlsOk, threeUrl }){
   renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
 
   const scene = new THREE.Scene();
-
   const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
 
-  let controls = null;
-  if (controlsOk && THREE.OrbitControls){
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
-
-    // ★パン＆ズームを確実に
-    controls.enablePan = true;
-    controls.enableZoom = true;
-    controls.enableRotate = true;
-
-    // ★操作割当：左=回転、右=パン、中央=ズーム
-    controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.PAN
-    };
-
-    // ★タッチ
-    controls.touches = {
-      ONE: THREE.TOUCH.ROTATE,
-      TWO: THREE.TOUCH.DOLLY_PAN
-    };
-
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
-    controls.zoomSpeed = 1.0;
-    controls.panSpeed = 1.0;
-    controls.rotateSpeed = 0.8;
-
-    // 見る中心を原点へ
-    controls.target.set(0,0,0);
-    controls.update();
-  }
-
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.60));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.90);
   dir.position.set(6, 10, 8);
   scene.add(dir);
 
+  // 描画対象は root にまとめて、回転は root を回す
   const root = new THREE.Group();
   scene.add(root);
-
-  let lines = null;
-  let totalSegments = 0;
-
-  let isPlaying = false;
-  let startTime = 0;
-  let animDuration = 7.0;
 
   // -----------------------------
   // Theme
@@ -475,7 +413,6 @@ function startApp({ controlsOk, threeUrl }){
       document.documentElement.style.setProperty("--btnBg", "#ffffff");
       document.documentElement.style.setProperty("--btnBgHover", "rgba(0,0,0,.06)");
       document.documentElement.style.setProperty("--btnBorder", "rgba(0,0,0,.25)");
-      document.documentElement.style.setProperty("--card", "#ffffff");
       document.documentElement.style.setProperty("--inputBg", "#ffffff");
       hud.classList.add("light");
       scene.background = new THREE.Color("#ffffff");
@@ -489,7 +426,6 @@ function startApp({ controlsOk, threeUrl }){
       document.documentElement.style.setProperty("--btnBg", "rgba(255,255,255,.06)");
       document.documentElement.style.setProperty("--btnBgHover", "rgba(255,255,255,.10)");
       document.documentElement.style.setProperty("--btnBorder", "rgba(255,255,255,.14)");
-      document.documentElement.style.setProperty("--card", "rgba(255,255,255,.04)");
       document.documentElement.style.setProperty("--inputBg", "rgba(0,0,0,.25)");
       hud.classList.remove("light");
       scene.background = new THREE.Color("#0b0f17");
@@ -497,33 +433,111 @@ function startApp({ controlsOk, threeUrl }){
   }
 
   // -----------------------------
-  // Camera fit (★中央に来る＆全体が入る)
+  // Manual camera control (確実に動く：回転/パン/ズーム)
   // -----------------------------
-  function resetCameraToFit(R, H){
-    const target = new THREE.Vector3(0, 0, 0);
+  const view = {
+    // “見る中心（パンで動く）”
+    target: new THREE.Vector3(0,0,0),
 
-    // 円柱を包む概算半径
-    const bound = Math.sqrt(R*R + (H*0.5)*(H*0.5));
-    const margin = 1.35;
+    // カメラ距離（ズーム）
+    dist: 12,
 
-    // fovから距離逆算
-    const fov = THREE.MathUtils.degToRad(camera.fov);
-    const dist = (bound * margin) / Math.sin(fov / 2);
+    // 回転（ラジアン）
+    yaw: 0.9,
+    pitch: 0.55,
 
-    // 見栄えの良い斜め上
-    camera.position.set(dist*0.75, dist*0.55, dist*0.85);
+    // 制限
+    minDist: 2.0,
+    maxDist: 80.0,
+    minPitch: -1.45,
+    maxPitch:  1.45
+  };
 
-    camera.near = Math.max(0.01, dist / 200);
-    camera.far  = dist * 10;
+  function updateCamera(){
+    // 球座標→直交座標
+    const cp = Math.cos(view.pitch);
+    const sp = Math.sin(view.pitch);
+    const cy = Math.cos(view.yaw);
+    const sy = Math.sin(view.yaw);
+
+    const x = view.target.x + view.dist * cp * cy;
+    const y = view.target.y + view.dist * sp;
+    const z = view.target.z + view.dist * cp * sy;
+
+    camera.position.set(x,y,z);
+    camera.lookAt(view.target);
     camera.updateProjectionMatrix();
-
-    camera.lookAt(target);
-
-    if (controls){
-      controls.target.copy(target);
-      controls.update();
-    }
   }
+
+  function resetViewToFit(R,H){
+    const bound = Math.sqrt(R*R + (H*0.5)*(H*0.5));
+    view.dist = Math.max(3, bound * 3.0);
+    view.target.set(0,0,0);
+    view.yaw = 0.9;
+    view.pitch = 0.55;
+    updateCamera();
+  }
+
+  // ピクセル→パンのスケール（距離に応じて自然に）
+  function panScale(){
+    return view.dist * 0.0012;
+  }
+
+  let dragging = false;
+  let dragButton = 0; // 0:left, 2:right
+  let lastX = 0, lastY = 0;
+
+  cv.addEventListener("pointerdown", (e)=>{
+    dragging = true;
+    dragButton = e.button;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    cv.classList.add("dragging");
+    cv.setPointerCapture(e.pointerId);
+  });
+
+  cv.addEventListener("pointerup", (e)=>{
+    dragging = false;
+    cv.classList.remove("dragging");
+    try{ cv.releasePointerCapture(e.pointerId); }catch(_){}
+  });
+
+  cv.addEventListener("pointermove", (e)=>{
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    if (dragButton === 2) {
+      // 右ドラッグ：パン（画面の右＝ワールドの右、画面の上＝ワールドの上）
+      // カメラの右・上ベクトルを使って target を動かす
+      const s = panScale();
+      const forward = new THREE.Vector3().subVectors(view.target, camera.position).normalize();
+      const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+      view.target.addScaledVector(right, -dx * s);
+      view.target.addScaledVector(up,   dy * s);
+      updateCamera();
+    } else {
+      // 左ドラッグ：回転
+      view.yaw   -= dx * 0.006;
+      view.pitch -= dy * 0.006;
+      view.pitch = Math.max(view.minPitch, Math.min(view.maxPitch, view.pitch));
+      updateCamera();
+    }
+  });
+
+  // ホイールズーム（passive:false）
+  cv.addEventListener("wheel", (e)=>{
+    e.preventDefault();
+    const delta = e.deltaY;
+    const factor = Math.exp(delta * 0.0012); // deltaY>0で縮む
+    view.dist *= factor;
+    view.dist = Math.max(view.minDist, Math.min(view.maxDist, view.dist));
+    updateCamera();
+  }, { passive:false });
 
   // -----------------------------
   // Build helpers
@@ -543,28 +557,16 @@ function startApp({ controlsOk, threeUrl }){
       const obj = root.children.pop();
       disposeObject(obj);
     }
-    lines = null;
-    totalSegments = 0;
   }
 
-  function buildCylinder(R, H, opacity){
-    const g = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
-    const m = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: clampNum(opacity, 0, 1),
-      roughness: 0.15,
-      metalness: 0.0,
-      transmission: 0.9,
-      thickness: 0.3,
-      side: THREE.DoubleSide,
-    });
-    root.add(new THREE.Mesh(g, m));
+  // 円柱本体は描かず、上面/底面の“円ガイド”だけ
+  function buildGuideRings(R, H){
+    const ringMatTop = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
+    const ringMatBot = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.14 });
 
-    const ringMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
-    const seg = 128;
+    const seg = 180;
 
-    function ring(z){
+    function ring(z, mat){
       const pts = [];
       for (let k=0;k<=seg;k++){
         const a = TAU * (k/seg);
@@ -572,14 +574,16 @@ function startApp({ controlsOk, threeUrl }){
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-      return new THREE.Line(geo, ringMat);
+      return new THREE.Line(geo, mat);
     }
-    root.add(ring(+H/2));
-    root.add(ring(-H/2));
+
+    root.add(ring(+H/2, ringMatTop));
+    root.add(ring(-H/2, ringMatBot));
   }
 
   function buildPins(N, R, z, colorHex, pred){
-    const allowed = buildAllowedList(N, pred);
+    const allowed = [];
+    for (let i=0;i<N;i++) if (pred(i)) allowed.push(i);
 
     const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
     const m = new THREE.MeshStandardMaterial({
@@ -601,6 +605,9 @@ function startApp({ controlsOk, threeUrl }){
     root.add(group);
     return { allowed };
   }
+
+  let lines = null;
+  let totalSegments = 0;
 
   function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor){
     const step = mod(M, N);
@@ -642,8 +649,8 @@ function startApp({ controlsOk, threeUrl }){
     const obj = new THREE.LineSegments(geo, mat);
     root.add(obj);
 
+    lines = obj;
     totalSegments = count;
-    return obj;
   }
 
   function setLineProgress(p){
@@ -653,17 +660,24 @@ function startApp({ controlsOk, threeUrl }){
     geo.setDrawRange(0, segToShow * 2);
   }
 
+  // -----------------------------
+  // App / UI
+  // -----------------------------
+  let isPlaying = false;
+  let startTime = 0;
+  let animDuration = 7.0;
+
   function updateMetaUI({N,M,step,d,L,topCount,botCount,segCount}){
     metaEl.innerHTML = `
       <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=${step}</div>
       <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
       <div>上面許可: <b>${topCount}</b> / 底面許可: <b>${botCount}</b></div>
       <div>糸（線分）: <b>${segCount}</b></div>
-      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / OrbitControls: ${controlsOk ? "OK" : "NG（回転/パン/ズームなし）"}</div>
+      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / 操作: manual</div>
     `;
   }
 
-  function rebuild({ doCameraFit = true } = {}){
+  function rebuild({ doFit = true } = {}){
     const N = clampInt(inN.value, 3, 2000);
     const M = clampInt(inM.value, 0, 2000000);
     const R = clampNum(inR.value, 0.1, 50);
@@ -679,14 +693,13 @@ function startApp({ controlsOk, threeUrl }){
 
     const lineColor = colLine.value;
     const pinColor  = colPin.value;
-    const cylOpacity = clampNum(rngCyl.value, 0, 1);
 
     animDuration = clampNum(inAnimT.value, 0.2, 120);
 
     applyTheme(selTheme.value);
 
     clearRoot();
-    buildCylinder(R, H, cylOpacity);
+    buildGuideRings(R, H);
 
     const topPred = makeFilter(topKind, topK, topR);
     const botPred = makeFilter(botKind, botK, botR);
@@ -694,7 +707,7 @@ function startApp({ controlsOk, threeUrl }){
     const topPins = buildPins(N, R, +H/2, pinColor, topPred);
     const botPins = buildPins(N, R, -H/2, pinColor, botPred);
 
-    lines = buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor);
+    buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor);
 
     const step = mod(M, N);
     const d = gcd(N, step);
@@ -712,8 +725,7 @@ function startApp({ controlsOk, threeUrl }){
     btnAnim.textContent = "▶ アニメ再生";
     setLineProgress(1.0);
 
-    // ★ここで中心＆全体フィット
-    if (doCameraFit) resetCameraToFit(R, H);
+    if (doFit) resetViewToFit(R, H);
   }
 
   // -----------------------------
@@ -725,11 +737,11 @@ function startApp({ controlsOk, threeUrl }){
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    updateCamera();
   }
 
   function loop(t){
     requestAnimationFrame(loop);
-    if (controls) controls.update();
 
     if (isPlaying && lines){
       const elapsed = (t - startTime) / 1000;
@@ -758,7 +770,7 @@ function startApp({ controlsOk, threeUrl }){
   // -----------------------------
   // Events
   // -----------------------------
-  btnApply.addEventListener("click", () => rebuild({ doCameraFit: true }));
+  btnApply.addEventListener("click", () => rebuild({ doFit:true }));
 
   btnAnim.addEventListener("click", ()=>{
     if (!lines) return;
@@ -780,33 +792,24 @@ function startApp({ controlsOk, threeUrl }){
     inBotK.value="2"; inBotR.value="1";
     colLine.value="#60a5fa";
     colPin.value="#e5e7eb";
-    inLineW.value="1.5";
     inAnimT.value="7.0";
-    rngCyl.value="0.18";
     selTheme.value="dark";
-
-    if (controls) controls.reset();
-    rebuild({ doCameraFit: true });
+    rebuild({ doFit:true });
   });
 
   btnShot.addEventListener("click", savePNG);
 
-  selTheme.addEventListener("change", () => rebuild({ doCameraFit: true }));
-  rngCyl.addEventListener("input", () => rebuild({ doCameraFit: false })); // 透明度は視点そのまま
+  selTheme.addEventListener("change", ()=> rebuild({ doFit:false }));
 
-  window.addEventListener("resize", ()=>{ resize(); });
+  window.addEventListener("resize", resize);
 
   // -----------------------------
   // Boot
   // -----------------------------
   applyTheme(selTheme.value);
   resize();
-  rebuild({ doCameraFit: true });
+  rebuild({ doFit:true });
   requestAnimationFrame(loop);
-
-  if (!controlsOk){
-    hud.textContent += "（※OrbitControlsが読めず、回転/パン/ズームなし）";
-  }
 }
 </script>
 </body>
