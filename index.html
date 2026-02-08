@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（正 N/M）</title>
+  <title>3D ストリングアート（正 N/M角形）</title>
 
   <style>
     :root{
@@ -661,7 +661,7 @@ class ThreeScene{
       this.camera.position.set(x,y,z);
       this.camera.lookAt(v.target);
       this.camera.updateProjectionMatrix();
-      this.requestRender(); // ★重要：操作のたびに再描画
+      this.requestRender();
     };
     this.updateCamera = updateCamera;
 
@@ -1109,7 +1109,6 @@ class StringArt3DApp{
       labelSizePx:this.DEFAULT_LABEL_SIZE
     });
 
-    this.hudText.textContent = "N/M を入力して描画します。";
     this.hidePickedNM();
     this.redrawAll();
   }
@@ -1274,7 +1273,7 @@ class StringArt3DApp{
         meta.textContent = `未入力`;
         return;
       }
-      if (N < 3){ meta.textContent = `N は 3 以上`; return; }
+      if (N < 2){ meta.textContent = `N は 2 以上`; return; }
       if (M < 1){ meta.textContent = `M は 1 以上`; return; }
       const info = app.getCycleInfo(r);
       const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
