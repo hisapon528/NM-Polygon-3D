@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>3D ストリングアート（円柱 + N/M + 規則フィルタ）</title>
+  <style>
+    :root{
+      --bg:#0b0f17;
+      --bg2:#111827;
+      --fg:#e5e7eb;
+      --muted:#9ca3af;
+      --panel: rgba(17,24,39,.86);
+      --border: rgba(255,255,255,.12);
+      --btnBg: rgba(255,255,255,.06);
+      --btnBgHover: rgba(255,255,255,.10);
+      --btnBorder: rgba(255,255,255,.14);
+      --card: rgba(255,255,255,.04);
+      --inputBg: rgba(0,0,0,.25);
+    }
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0; overflow:hidden;
+      font-family: system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
+      background: radial-gradient(1200px 700px at 30% 20%, var(--bg2), var(--bg));
+      color:var(--fg);
+    }
+    .wrap{
+      display:grid;
+      grid-template-columns: 420px 1fr;
+      height:100vh; width:100vw;
+    }
+    .panel{
+      height:100vh; overflow:auto;
+      padding:16px;
+      background: var(--panel);
+      border-right:1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(8px);
+    }
+    h1{ margin:0 0 10px; font-size:18px; }
+    .desc{ color:var(--muted); font-size:12px; line-height:1.55; margin-bottom:12px; }
+    .box{
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+      background: rgba(0,0,0,.18);
+      margin-bottom:12px;
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .field{ display:flex; flex-direction:column; gap:6px; }
+    .label{ font-size:11px; color:var(--muted); }
+    input[type="number"], select{
+      width:100%;
+      padding:10px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,.12);
+      background: var(--inputBg);
+      color:var(--fg);
+      outline:none;
+    }
+    input[type="range"]{ width:100%; }
+    input[type="color"]{
+      width:100%; height:36px;
+      border:none; background:transparent; padding:0;
+    }
+    .btns{
+      display:flex; flex-wrap:wrap; gap:10px;
+      position: sticky; top:0; z-index:3;
+      padding:10px 0;
+      background: linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55));
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+    button{
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid var(--btnBorder);
+      background: var(--btnBg);
+      color:var(--fg);
+      cursor:pointer;
+      user-select:none;
+    }
+    button:hover{ background: var(--btnBgHover); }
+    .btnPrimary{ border-color: rgba(96,165,250,.55); }
+    .btnToggle{ border-color: rgba(52,211,153,.45); }
+    .btnWarn{ border-color: rgba(251,191,36,.55); }
+
+    .meta{
+      font-size:12px; line-height:1.6;
+      color: var(--muted);
+    }
+    .meta b{ color: var(--fg); }
+    .viewer{
+      position:relative;
+      height:100vh;
+      display:flex;
+      align-items:stretch;
+      justify-content:stretch;
+    }
+    #stage{
+      width:100%;
+      height:100%;
+      display:block;
+      cursor:grab;
+    }
+    .hud{
+      position:absolute;
+      left:12px; top:12px;
+      background: rgba(0,0,0,.55);
+      border: 1px solid rgba(255,255,255,.18);
+      color: rgba(255,255,255,.92);
+      padding:10px 12px;
+      border-radius:12px;
+      font-size:12px;
+      line-height:1.5;
+      pointer-events:none;
+      white-space:nowrap;
+    }
+    .hud.light{
+      background: rgba(255,255,255,.92);
+      border: 1px solid rgba(0,0,0,.18);
+      color: rgba(17,24,39,.98);
+    }
+    .tiny{ font-size:11px; color:var(--muted); line-height:1.55; margin-top:8px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>3D ストリングアート（透明円柱 + 正 N/M）</h1>
+    <div class="btns">
+      <button id="btnApply" class="btnPrimary">反映</button>
+      <button id="btnAnim" class="btnToggle">▶ アニメ再生</button>
+      <button id="btnReset" class="btnWarn">リセット</button>
+      <button id="btnShot">スクショ保存（PNG）</button>
+    </div>
+
+    <div class="box">
+      <div class="row">
+        <div class="field">
+          <div class="label">N（分割数）</div>
+          <input id="inN" type="number" min="3" step="1" value="24" />
+        </div>
+        <div class="field">
+          <div class="label">M（ステップ）</div>
+          <input id="inM" type="number" min="0" step="1" value="7" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">半径 R</div>
+          <input id="inR" type="number" min="0.1" step="0.1" value="3.0" />
+        </div>
+        <div class="field">
+          <div class="label">高さ h</div>
+          <input id="inH" type="number" min="0.1" step="0.1" value="4.0" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">上面ピンの条件</div>
+          <select id="selTop">
+            <option value="all">全て</option>
+            <option value="even">偶数のみ</option>
+            <option value="odd">奇数のみ</option>
+            <option value="mod">mod k = r</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="label">底面ピンの条件</div>
+          <select id="selBottom">
+            <option value="all">全て</option>
+            <option value="even">偶数のみ</option>
+            <option value="odd">奇数のみ</option>
+            <option value="mod">mod k = r</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">上面：k（mod の法）</div>
+          <input id="inTopK" type="number" min="2" step="1" value="2" />
+        </div>
+        <div class="field">
+          <div class="label">上面：r（余り）</div>
+          <input id="inTopR" type="number" min="0" step="1" value="0" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">底面：k（mod の法）</div>
+          <input id="inBotK" type="number" min="2" step="1" value="2" />
+        </div>
+        <div class="field">
+          <div class="label">底面：r（余り）</div>
+          <input id="inBotR" type="number" min="0" step="1" value="1" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">糸の色</div>
+          <input id="colLine" type="color" value="#60a5fa" />
+        </div>
+        <div class="field">
+          <div class="label">ピンの色</div>
+          <input id="colPin" type="color" value="#e5e7eb" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">糸の太さ</div>
+          <input id="inLineW" type="number" min="0.5" step="0.5" value="1.5" />
+        </div>
+        <div class="field">
+          <div class="label">アニメ時間（秒）</div>
+          <input id="inAnimT" type="number" min="0.2" step="0.1" value="7.0" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">円柱の透明度（0〜1）</div>
+          <input id="rngCyl" type="range" min="0" max="1" step="0.01" value="0.18" />
+        </div>
+        <div class="field">
+          <div class="label">テーマ</div>
+          <select id="selTheme">
+            <option value="dark" selected>ダーク</option>
+            <option value="light">ライト</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="tiny">
+        ・フィルタで許可されない点に当たった場合は、底面側は「最も近い許可点」にスナップします（角度距離最小）。<br/>
+        ・糸は最小構成として LineSegments で描画（軽量）。見た目を糸っぽくする Tube 化は次段階で可能。
+      </div>
+    </div>
+
+    <div class="box meta" id="meta"></div>
+  </div>
+
+  <div class="viewer">
+    <canvas id="stage"></canvas>
+    <div class="hud" id="hud">N/M と規則を反映してください</div>
+  </div>
+</div>
+
+<!-- Three.js -->
+<script type="module">
+  import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+  import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+
+  // -----------------------------
+  // Utilities
+  // -----------------------------
+  const TAU = Math.PI * 2;
+  const mod = (n, m) => ((n % m) + m) % m;
+  const gcd = (a, b) => {
+    a = Math.abs(a); b = Math.abs(b);
+    while (b !== 0) { const t = a % b; a = b; b = t; }
+    return a;
+  };
+
+  function clampInt(v, min, max){
+    v = Math.floor(Number(v));
+    if (!Number.isFinite(v)) return min;
+    return Math.max(min, Math.min(max, v));
+  }
+  function clampNum(v, min, max){
+    v = Number(v);
+    if (!Number.isFinite(v)) return min;
+    return Math.max(min, Math.min(max, v));
+  }
+
+  // "許可されるインデックスか" 判定
+  function makeFilter(kind, k, r){
+    k = Math.max(2, Math.floor(Number(k) || 2));
+    r = mod(Math.floor(Number(r) || 0), k);
+
+    if (kind === "even") return (i)=> (i % 2 === 0);
+    if (kind === "odd")  return (i)=> (i % 2 !== 0);
+    if (kind === "mod")  return (i)=> (mod(i, k) === r);
+    return (_)=> true; // all
+  }
+
+  function buildAllowedList(N, pred){
+    const arr = [];
+    for (let i=0;i<N;i++) if (pred(i)) arr.push(i);
+    return arr;
+  }
+
+  // 底面インデックス j が許可されないとき、最も近い許可点へスナップ（角度距離最小）
+  // 角度は 2π * i/N なので、距離は mod距離（周回）でOK
+  function snapToAllowed(N, j, allowed){
+    if (!allowed.length) return null;
+    const jj = mod(j, N);
+    // 二分探索っぽくしてもいいが、最小構成は線数が少なめ想定なので線形で十分
+    let best = allowed[0];
+    let bestD = Infinity;
+    for (const a of allowed){
+      const d = Math.min(mod(a - jj, N), mod(jj - a, N));
+      if (d < bestD){
+        bestD = d;
+        best = a;
+        if (bestD === 0) break;
+      }
+    }
+    return best;
+  }
+
+  // -----------------------------
+  // DOM
+  // -----------------------------
+  const cv = document.getElementById("stage");
+  const hud = document.getElementById("hud");
+  const metaEl = document.getElementById("meta");
+
+  const inN = document.getElementById("inN");
+  const inM = document.getElementById("inM");
+  const inR = document.getElementById("inR");
+  const inH = document.getElementById("inH");
+  const selTop = document.getElementById("selTop");
+  const selBottom = document.getElementById("selBottom");
+  const inTopK = document.getElementById("inTopK");
+  const inTopR = document.getElementById("inTopR");
+  const inBotK = document.getElementById("inBotK");
+  const inBotR = document.getElementById("inBotR");
+  const colLine = document.getElementById("colLine");
+  const colPin = document.getElementById("colPin");
+  const inLineW = document.getElementById("inLineW");
+  const inAnimT = document.getElementById("inAnimT");
+  const rngCyl = document.getElementById("rngCyl");
+  const selTheme = document.getElementById("selTheme");
+
+  const btnApply = document.getElementById("btnApply");
+  const btnAnim = document.getElementById("btnAnim");
+  const btnReset = document.getElementById("btnReset");
+  const btnShot  = document.getElementById("btnShot");
+
+  // -----------------------------
+  // Three.js scene
+  // -----------------------------
+  const renderer = new THREE.WebGLRenderer({
+    canvas: cv,
+    antialias: true,
+    alpha: true,
+    preserveDrawingBuffer: true, // スクショ
+  });
+  renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
+
+  const scene = new THREE.Scene();
+
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
+  camera.position.set(7, 6, 9);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  // Lighting
+  const amb = new THREE.AmbientLight(0xffffff, 0.55);
+  scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+  dir.position.set(6, 10, 8);
+  scene.add(dir);
+
+  // Root group
+  const root = new THREE.Group();
+  scene.add(root);
+
+  // Objects (regenerated)
+  let cylMesh = null;
+  let pinsTop = null;
+  let pinsBottom = null;
+  let lines = null;
+
+  // Animation state
+  let isPlaying = false;
+  let startTime = 0;
+  let totalSegments = 0;
+  let animDuration = 7.0;
+
+  // -----------------------------
+  // Theme
+  // -----------------------------
+  function applyTheme(theme){
+    if (theme === "light"){
+      document.documentElement.style.setProperty("--bg", "#ffffff");
+      document.documentElement.style.setProperty("--bg2", "#ffffff");
+      document.documentElement.style.setProperty("--fg", "#111827");
+      document.documentElement.style.setProperty("--muted", "#374151");
+      document.documentElement.style.setProperty("--panel", "#ffffff");
+      document.documentElement.style.setProperty("--border", "rgba(0,0,0,.12)");
+      document.documentElement.style.setProperty("--btnBg", "#ffffff");
+      document.documentElement.style.setProperty("--btnBgHover", "rgba(0,0,0,.06)");
+      document.documentElement.style.setProperty("--btnBorder", "rgba(0,0,0,.25)");
+      document.documentElement.style.setProperty("--card", "#ffffff");
+      document.documentElement.style.setProperty("--inputBg", "#ffffff");
+      hud.classList.add("light");
+
+      scene.background = new THREE.Color("#ffffff");
+    } else {
+      document.documentElement.style.setProperty("--bg", "#0b0f17");
+      document.documentElement.style.setProperty("--bg2", "#111827");
+      document.documentElement.style.setProperty("--fg", "#e5e7eb");
+      document.documentElement.style.setProperty("--muted", "#9ca3af");
+      document.documentElement.style.setProperty("--panel", "rgba(17,24,39,.86)");
+      document.documentElement.style.setProperty("--border", "rgba(255,255,255,.12)");
+      document.documentElement.style.setProperty("--btnBg", "rgba(255,255,255,.06)");
+      document.documentElement.style.setProperty("--btnBgHover", "rgba(255,255,255,.10)");
+      document.documentElement.style.setProperty("--btnBorder", "rgba(255,255,255,.14)");
+      document.documentElement.style.setProperty("--card", "rgba(255,255,255,.04)");
+      document.documentElement.style.setProperty("--inputBg", "rgba(0,0,0,.25)");
+      hud.classList.remove("light");
+
+      scene.background = new THREE.Color("#0b0f17");
+    }
+  }
+
+  // -----------------------------
+  // Build geometry
+  // -----------------------------
+  function clearRoot(){
+    while (root.children.length){
+      const obj = root.children.pop();
+      obj.traverse((x)=>{
+        if (x.geometry) x.geometry.dispose();
+        if (x.material){
+          if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
+          else x.material.dispose();
+        }
+      });
+    }
+    cylMesh = pinsTop = pinsBottom = lines = null;
+  }
+
+  function buildPins(N, R, z, colorHex, pred){
+    const allowed = buildAllowedList(N, pred);
+    const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
+    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex), roughness: 0.25, metalness: 0.05 });
+    const group = new THREE.Group();
+    for (let i=0;i<N;i++){
+      if (!pred(i)) continue;
+      const ang = TAU * (i / N) - Math.PI/2;
+      const x = R * Math.cos(ang);
+      const y = R * Math.sin(ang);
+      const s = new THREE.Mesh(g, m);
+      s.position.set(x, y, z);
+      group.add(s);
+    }
+    root.add(group);
+    return { group, allowed };
+  }
+
+  function buildCylinder(R, H, opacity){
+    // 透明な円柱（最小構成：ガラスっぽい雰囲気）
+    const g = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
+    const m = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: clampNum(opacity, 0, 1),
+      roughness: 0.15,
+      metalness: 0.0,
+      transmission: 0.9,  // ガラス感（環境マップなしでも雰囲気出る）
+      thickness: 0.3,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(g, m);
+    root.add(mesh);
+
+    // 上下面のリング（薄いガイド）
+    const ringMat = new THREE.LineBasicMaterial({ color: new THREE.Color(0xffffff), transparent:true, opacity: 0.20 });
+    const ringGeo = new THREE.BufferGeometry();
+    const pts = [];
+    const seg = 128;
+    for (let k=0;k<=seg;k++){
+      const a = TAU * (k/seg);
+      pts.push(R*Math.cos(a), R*Math.sin(a), H/2);
+    }
+    ringGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    const ringTop = new THREE.Line(ringGeo, ringMat);
+
+    const ringGeo2 = ringGeo.clone();
+    const pos2 = ringGeo2.attributes.position;
+    for (let i=0;i<pos2.count;i++){
+      pos2.setZ(i, -H/2);
+    }
+    const ringBot = new THREE.Line(ringGeo2, ringMat);
+
+    root.add(ringTop);
+    root.add(ringBot);
+
+    return mesh;
+  }
+
+  function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor, lineWidth){
+    const step = mod(M, N);
+
+    // 上面：i は topAllowed のみ採用
+    // 底面：j=f(i) が bottomAllowedに無いならスナップ
+    const topPred = (i)=> topAllowed.includes(i);
+    const bottomSet = new Set(bottomAllowed);
+
+    // 速度のため bottomAllowed を配列のまま使う（snapが走査）
+    const positions = [];
+
+    const zTop = +H/2;
+    const zBot = -H/2;
+
+    let count = 0;
+    for (let i=0;i<N;i++){
+      if (!topPred(i)) continue;
+
+      const j0 = mod(i + step, N);
+      const j = bottomSet.has(j0) ? j0 : snapToAllowed(N, j0, bottomAllowed);
+      if (j == null) continue;
+
+      const a = TAU * (i / N) - Math.PI/2;
+      const b = TAU * (j / N) - Math.PI/2;
+
+      const ax = R*Math.cos(a), ay = R*Math.sin(a);
+      const bx = R*Math.cos(b), by = R*Math.sin(b);
+
+      positions.push(ax, ay, zTop);
+      positions.push(bx, by, zBot);
+      count++;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+    // drawRange をアニメで変える
+    geo.setDrawRange(0, 0);
+
+    // LineSegments の太さは WebGL の都合で platform依存のことが多い（太さが効かないことあり）
+    // そこで「最小構成」としては lineWidth を HUD/メタに反映し、将来 Tube 化で対応が現実的
+    const mat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(lineColor),
+      transparent: true,
+      opacity: 0.95,
+    });
+
+    const obj = new THREE.LineSegments(geo, mat);
+    root.add(obj);
+
+    // 補助：太さが効かない場合のために “明るさ” で雰囲気調整できるようにする
+    mat.userData.requestedLineWidth = lineWidth;
+
+    totalSegments = count; // 1 segment = 2 vertices
+    return obj;
+  }
+
+  function updateMetaUI(params){
+    const { N, M, step, d, L, topCount, botCount, segCount } = params;
+    metaEl.innerHTML = `
+      <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=M mod N = ${step}</div>
+      <div><b>gcd(N,step)</b>=${d}（分裂成分の目安） / <b>L</b>=N/gcd(N,step)=${L}</div>
+      <div>上面の許可点: <b>${topCount}</b> / 底面の許可点: <b>${botCount}</b></div>
+      <div>張った糸（線分）: <b>${segCount}</b></div>
+    `;
+  }
+
+  function rebuild(){
+    // Read params
+    const N = clampInt(inN.value, 3, 2000);
+    const M = clampInt(inM.value, 0, 2000000);
+    const R = clampNum(inR.value, 0.1, 50);
+    const H = clampNum(inH.value, 0.1, 80);
+    const cylOpacity = clampNum(rngCyl.value, 0, 1);
+
+    const topKind = selTop.value;
+    const botKind = selBottom.value;
+
+    const topK = clampInt(inTopK.value, 2, 2000);
+    const topR = clampInt(inTopR.value, 0, 2000000);
+    const botK = clampInt(inBotK.value, 2, 2000);
+    const botR = clampInt(inBotR.value, 0, 2000000);
+
+    const lineColor = colLine.value;
+    const pinColor = colPin.value;
+    const lineW = clampNum(inLineW.value, 0.5, 10);
+
+    animDuration = clampNum(inAnimT.value, 0.2, 120);
+
+    // Theme
+    applyTheme(selTheme.value);
+
+    // Clear
+    clearRoot();
+
+    // Build
+    const zTop = +H/2;
+    const zBot = -H/2;
+
+    cylMesh = buildCylinder(R, H, cylOpacity);
+
+    const topPred = makeFilter(topKind, topK, topR);
+    const botPred = makeFilter(botKind, botK, botR);
+
+    const topPins = buildPins(N, R, zTop, pinColor, topPred);
+    const botPins = buildPins(N, R, zBot, pinColor, botPred);
+
+    pinsTop = topPins.group;
+    pinsBottom = botPins.group;
+
+    const step = mod(M, N);
+    const d = gcd(N, step);
+    const L = (step === 0) ? 0 : (N / d);
+
+    lines = buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor, lineW);
+
+    // HUD
+    hud.textContent = `N=${N}, M=${M}（step=${step}） / 上:${topKind} 下:${botKind}`;
+
+    updateMetaUI({
+      N, M, step, d, L,
+      topCount: topPins.allowed.length,
+      botCount: botPins.allowed.length,
+      segCount: totalSegments
+    });
+
+    // Animation reset
+    isPlaying = false;
+    btnAnim.textContent = "▶ アニメ再生";
+    startTime = performance.now();
+    // draw all immediately
+    setLineProgress(1.0);
+  }
+
+  function setLineProgress(p){
+    if (!lines) return;
+    const geo = lines.geometry;
+    const maxSeg = totalSegments;           // segments
+    const segToShow = Math.floor(Math.max(0, Math.min(1, p)) * maxSeg);
+    // LineSegments: drawRange count is number of vertices to draw
+    geo.setDrawRange(0, segToShow * 2);
+    geo.attributes.position.needsUpdate = true;
+  }
+
+  function resetView(){
+    controls.reset();
+    camera.position.set(7, 6, 9);
+    controls.update();
+  }
+
+  // -----------------------------
+  // Render loop
+  // -----------------------------
+  function resize(){
+    const w = cv.clientWidth;
+    const h = cv.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+
+  function animate(t){
+    requestAnimationFrame(animate);
+    controls.update();
+
+    if (isPlaying && lines){
+      const elapsed = (t - startTime) / 1000;
+      const p = Math.min(1, elapsed / animDuration);
+      setLineProgress(p);
+
+      if (p >= 1){
+        isPlaying = false;
+        btnAnim.textContent = "▶ アニメ再生";
+      }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // -----------------------------
+  // Screenshot
+  // -----------------------------
+  function savePNG(){
+    // draw full before shot
+    setLineProgress(1.0);
+    renderer.render(scene, camera);
+
+    const url = renderer.domElement.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "3d-string-art.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // -----------------------------
+  // Events
+  // -----------------------------
+  btnApply.addEventListener("click", rebuild);
+
+  btnAnim.addEventListener("click", ()=>{
+    if (!lines) return;
+    isPlaying = !isPlaying;
+    if (isPlaying){
+      startTime = performance.now();
+      setLineProgress(0.0);
+      btnAnim.textContent = "⏸ アニメ停止";
+    } else {
+      btnAnim.textContent = "▶ アニメ再生";
+      // 停止時は途中のまま残す（仕様）
+    }
+  });
+
+  btnReset.addEventListener("click", ()=>{
+    // reasonable defaults (偶奇例)
+    inN.value = "24";
+    inM.value = "7";
+    inR.value = "3.0";
+    inH.value = "4.0";
+    selTop.value = "even";
+    selBottom.value = "odd";
+    inTopK.value = "2"; inTopR.value = "0";
+    inBotK.value = "2"; inBotR.value = "1";
+    colLine.value = "#60a5fa";
+    colPin.value = "#e5e7eb";
+    inLineW.value = "1.5";
+    inAnimT.value = "7.0";
+    rngCyl.value = "0.18";
+    selTheme.value = "dark";
+    resetView();
+    rebuild();
+  });
+
+  btnShot.addEventListener("click", savePNG);
+
+  // apply on some inputs instantly (軽め)
+  [selTheme, rngCyl].forEach(el=>{
+    el.addEventListener("input", rebuild);
+    el.addEventListener("change", rebuild);
+  });
+
+  window.addEventListener("resize", ()=>{ resize(); });
+
+  // -----------------------------
+  // Boot
+  // -----------------------------
+  applyTheme("dark");
+  resize();
+  rebuild();
+  requestAnimationFrame(animate);
+</script>
+</body>
+</html>
