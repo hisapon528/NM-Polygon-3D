@@ -190,7 +190,7 @@
       color: var(--hudFg);
       padding:24px 30px;
       border-radius:14px;
-      font-size:40px;     
+      font-size:40px;
       font-weight:600;
       letter-spacing:0.03em;
       pointer-events:none;
@@ -624,42 +624,6 @@ class ThreeScene{
       maxPitch:  1.45
     };
 
-    captureWithHUD(hudText){
-  const canvas = this.renderer.domElement;
-  const ctx = canvas.getContext("2d");
-
-  // まず Three.js の描画結果を確定
-  this.render();
-
-  if (hudText){
-    const pad = 20;
-    const fontSize = 40;
-    ctx.save();
-    ctx.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
-    ctx.textBaseline = "top";
-
-    const metrics = ctx.measureText(hudText);
-    const w = metrics.width + pad*2;
-    const h = fontSize + pad*2;
-
-    // 背景
-    ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillRect(12, 12, w, h);
-
-    // 枠線
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.strokeRect(12, 12, w, h);
-
-    // テキスト
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.fillText(hudText, 12 + pad, 12 + pad);
-
-    ctx.restore();
-  }
-
-  return canvas.toDataURL("image/png");
-}
-
     this._installCameraControls();
   }
 
@@ -810,6 +774,48 @@ class ThreeScene{
     const hits = this.raycaster.intersectObjects(lineObjects, false);
     if (!hits.length) return null;
     return hits[0].object;
+  }
+
+  // ★ HUD（NM表示）を合成してPNG化（HUDが写るスクショ）
+  captureWithHUD(hudText){
+    const canvas = this.renderer.domElement;
+    const ctx = canvas.getContext("2d");
+
+    // Three.js の描画結果を確定
+    this.render();
+
+    if (hudText){
+      const pad = 20;
+      const fontSize = 40;
+
+      ctx.save();
+      ctx.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+      ctx.textBaseline = "top";
+
+      const metrics = ctx.measureText(hudText);
+      const w = Math.ceil(metrics.width + pad*2);
+      const h = Math.ceil(fontSize + pad*2);
+
+      const x = 12;
+      const y = 12;
+
+      // 背景
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(x, y, w, h);
+
+      // 枠線
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, w, h);
+
+      // 文字
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillText(hudText, x + pad, y + pad);
+
+      ctx.restore();
+    }
+
+    return canvas.toDataURL("image/png");
   }
 }
 
@@ -1028,7 +1034,7 @@ class RowBuilder{
 
     const line = new THREE.Line(geo, mat);
     line.userData.rowId = r.id;
-    line.userData.baseColorHex = r.lineColor;   // ★ ハイライト復帰用
+    line.userData.baseColorHex = r.lineColor;   // ハイライト復帰用
     r.pathLine = line;
     group.add(line);
 
@@ -1106,8 +1112,6 @@ class StringArt3DApp{
 
     this._downX = 0;
     this._downY = 0;
-
-    this._pickedLine = null;
   }
 
   requestRender(){ this.scheduler.request(); }
@@ -1155,26 +1159,22 @@ class StringArt3DApp{
     this.hud.style.display = 'none';
   }
 
-  // ★ クリックした線を一瞬ハイライト
   flashHighlightLine(line){
     if (!line || !line.material) return;
 
-    // 前回のハイライト復帰が残っていたら解除
     if (line.userData._hlTimeout){
       clearTimeout(line.userData._hlTimeout);
       line.userData._hlTimeout = null;
     }
 
-    // もともとの色を確実に保持（初回のみ）
     if (!line.userData._origColorHex){
-      const c = line.material.color;
-      line.userData._origColorHex = "#" + c.getHexString();
+      line.userData._origColorHex = line.userData.baseColorHex || ("#" + line.material.color.getHexString());
     }
     if (typeof line.material.opacity === "number" && line.userData._origOpacity == null){
       line.userData._origOpacity = line.material.opacity;
     }
 
-    const highlightHex = (this.themeManager.state.theme === "light") ? "#111827" : "#fde047"; // 目立つ色
+    const highlightHex = (this.themeManager.state.theme === "light") ? "#111827" : "#fde047";
     line.material.color.set(highlightHex);
     line.material.opacity = 1.0;
     line.material.needsUpdate = true;
@@ -1664,19 +1664,20 @@ class StringArt3DApp{
     });
 
     this.btnSave.addEventListener('click', ()=>{
+      // まず全行を最後まで描画
       for (const r of this.rows){
         const info = this.getCycleInfo(r);
         if (info.valid && info.edges > 0){
           this.rowBuilder.setRowLineProgress(r, info.edges);
         }
       }
-      this.requestRender();
 
+      // HUDが出ているときだけ文字列を合成して保存
       const hudText = (this.hud.style.display === 'block')
-       ? this.hudNM.textContent
-         : null;
+        ? this.hudNM.textContent
+        : null;
 
-          const url = this.three.captureWithHUD(hudText);
+      const url = this.three.captureWithHUD(hudText);
 
       const a = document.createElement('a');
       a.href = url;
