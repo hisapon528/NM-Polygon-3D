@@ -181,6 +181,7 @@
     }
     canvas#stage.dragging{ cursor: grabbing; }
 
+    /* HUD: 線クリック時だけ表示（文字は大きめ） */
     .hud{
       position:absolute;
       left:12px; top:12px;
@@ -207,6 +208,7 @@
       display:inline-block;
     }
 
+    /* Modal */
     .modalOverlay{
       position:fixed; inset:0;
       background: var(--overlayBg);
@@ -299,6 +301,7 @@
   </div>
 </div>
 
+<!-- 行設定モーダル -->
 <div class="modalOverlay" id="rowModalOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modalHeader">
@@ -356,6 +359,7 @@
   </div>
 </div>
 
+<!-- 全体設定モーダル -->
 <div class="modalOverlay" id="globalModalOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modalHeader">
@@ -587,7 +591,7 @@ class ThreeScene{
       canvas: stage,
       antialias: true,
       alpha: false,
-      preserveDrawingBuffer: true, // PNG保存に必要
+      preserveDrawingBuffer: true,
     });
     this.renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
 
@@ -772,12 +776,8 @@ class ThreeScene{
     return hits[0].object;
   }
 
-  // ★修正版：WebGL canvas → 2Dの別canvasへ転写してHUD合成 → PNG
+  // ★ PNG保存用：WebGLの描画にHUD文字を合成してDataURLを返す
   captureWithHUD(hudText){
-    // 最新状態を確実に描画
-    this.resize();
-    this.render();
-
     const src = this.renderer.domElement; // WebGL canvas
     const w = src.width;
     const h = src.height;
@@ -786,17 +786,18 @@ class ThreeScene{
     out.width = w;
     out.height = h;
 
-    const ctx = out.getContext("2d", { alpha: false });
+    const ctx = out.getContext("2d");
     if (!ctx) throw new Error("2D context is not available");
 
-    // WebGL描画結果を転写
-    ctx.drawImage(src, 0, 0);
+    try{
+      ctx.drawImage(src, 0, 0, w, h);
+    }catch(err){
+      throw new Error("drawImage(WebGL→2D) failed: " + (err?.message || err));
+    }
 
-    // HUDテキストがある時だけ合成
     if (hudText){
-      const x = 12;
-      const y = 12;
-      const pad = 20;
+      const x = 12, y = 12;
+      const padX = 24, padY = 18;
       const fontSize = 40;
 
       ctx.save();
@@ -804,19 +805,28 @@ class ThreeScene{
       ctx.textBaseline = "top";
 
       const metrics = ctx.measureText(hudText);
-      const boxW = Math.ceil(metrics.width + pad*2);
-      const boxH = Math.ceil(fontSize + pad*2);
+      const boxW = Math.ceil(metrics.width + padX*2);
+      const boxH = Math.ceil(fontSize + padY*2);
+
+      const r = 14;
+      const canRound = (typeof ctx.roundRect === "function");
 
       ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(x, y, boxW, boxH);
-
       ctx.strokeStyle = "rgba(255,255,255,0.25)";
       ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, boxW, boxH);
+
+      if (canRound){
+        ctx.beginPath();
+        ctx.roundRect(x, y, boxW, boxH, r);
+        ctx.fill();
+        ctx.stroke();
+      }else{
+        ctx.fillRect(x, y, boxW, boxH);
+        ctx.strokeRect(x, y, boxW, boxH);
+      }
 
       ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.fillText(hudText, x + pad, y + pad);
-
+      ctx.fillText(hudText, x + padX, y + padY);
       ctx.restore();
     }
 
@@ -1039,7 +1049,6 @@ class RowBuilder{
 
     const line = new THREE.Line(geo, mat);
     line.userData.rowId = r.id;
-    line.userData.baseColorHex = r.lineColor;
     r.pathLine = line;
     group.add(line);
 
@@ -1154,7 +1163,7 @@ class StringArt3DApp{
     }
   }
 
-  showPickedNM(rowId, N, M){
+  showPickedNM(N, M){
     this.hudNM.textContent = `N = ${N},  M = ${M}`;
     this.hud.style.display = 'block';
   }
@@ -1164,6 +1173,7 @@ class StringArt3DApp{
     this.hud.style.display = 'none';
   }
 
+  // クリックした線を一瞬ハイライト
   flashHighlightLine(line){
     if (!line || !line.material) return;
 
@@ -1173,7 +1183,8 @@ class StringArt3DApp{
     }
 
     if (!line.userData._origColorHex){
-      line.userData._origColorHex = line.userData.baseColorHex || ("#" + line.material.color.getHexString());
+      const c = line.material.color;
+      line.userData._origColorHex = "#" + c.getHexString();
     }
     if (typeof line.material.opacity === "number" && line.userData._origOpacity == null){
       line.userData._origOpacity = line.material.opacity;
@@ -1186,7 +1197,7 @@ class StringArt3DApp{
     this.requestRender();
 
     line.userData._hlTimeout = setTimeout(()=>{
-      const backHex = line.userData._origColorHex || line.userData.baseColorHex;
+      const backHex = line.userData._origColorHex;
       if (backHex) line.material.color.set(backHex);
       if (line.userData._origOpacity != null) line.material.opacity = line.userData._origOpacity;
       line.material.needsUpdate = true;
@@ -1422,6 +1433,7 @@ class StringArt3DApp{
     });
 
     btnGear.addEventListener('click', ()=> app.openRowSettings(r, card));
+
     btnDel.addEventListener('click', ()=>{
       stopGlobalIfNeeded();
       app.hidePickedNM();
@@ -1615,7 +1627,7 @@ class StringArt3DApp{
   }
 
   _installEvents(){
-    document.getElementById('rowModalClose').addEventListener('click', ()=> this.closeRowSettings());
+    this.rowModalClose.addEventListener('click', ()=> this.closeRowSettings());
     this.rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.rowModalOverlay) this.closeRowSettings(); });
 
     [
@@ -1667,39 +1679,42 @@ class StringArt3DApp{
       }
     });
 
-    // ★PNG保存（確実にレンダ→合成→ダウンロード）
+    // ★ PNG保存（HUDも含める・HUD表示中でも動く）
     this.btnSave.addEventListener('click', ()=>{
-      // 全行を最後まで描画にしてから保存（仕様維持）
-      for (const r of this.rows){
-        const info = this.getCycleInfo(r);
-        if (info.valid && info.edges > 0){
-          this.rowBuilder.setRowLineProgress(r, info.edges);
-        }
-      }
-
-      const hudText = (this.hud.style.display === 'block')
-        ? this.hudNM.textContent
-        : null;
-
-      let url;
       try{
-        url = this.three.captureWithHUD(hudText);
+        // 全行を最後まで描画
+        for (const r of this.rows){
+          const info = this.getCycleInfo(r);
+          if (info.valid && info.edges > 0){
+            this.rowBuilder.setRowLineProgress(r, info.edges);
+          }
+        }
+
+        // ここで1回だけ確実に描画（captureWithHUD内ではrenderしない）
+        this.three.resize();
+        this.three.render();
+
+        const hudText = (this.hud.style.display === 'block')
+          ? this.hudNM.textContent
+          : null;
+
+        const url = this.three.captureWithHUD(hudText);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '3d-string-art.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
       }catch(e){
         console.error(e);
-        alert("PNG保存に失敗しました。コンソールをご確認ください。");
-        return;
+        alert("PNG保存に失敗しました:\n" + (e?.message || e));
       }
-
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '3d-string-art.png';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
     });
 
     window.addEventListener('resize', ()=> this.redrawAll());
 
+    // クリック判定（ドラッグ除外）
     this.stage.addEventListener('pointerdown', (e)=>{
       this._downX = e.clientX;
       this._downY = e.clientY;
@@ -1728,10 +1743,11 @@ class StringArt3DApp{
         return;
       }
 
-      this.showPickedNM(row.id, row.N, row.M);
+      this.showPickedNM(row.N, row.M);
       this.flashHighlightLine(hitLine);
     });
 
+    // ダブルクリックで画角リセット
     this.stage.addEventListener('dblclick', (e)=>{
       e.preventDefault();
       this.hidePickedNM();
