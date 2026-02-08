@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（正 N/M角形）</title>
+  <title>3D ストリングアート（正 N/M）</title>
 
   <style>
     :root{
@@ -69,10 +69,6 @@
     }
 
     h1{ font-size:18px; margin:0 0 10px; }
-    .desc{
-      font-size:12px; color:var(--muted); line-height:1.55; margin-bottom:12px;
-      min-height: 0;
-    }
 
     .controlsTop{
       display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center;
@@ -185,31 +181,31 @@
     }
     canvas#stage.dragging{ cursor: grabbing; }
 
+    /* HUD: 線クリック時だけ表示 */
     .hud{
       position:absolute;
       left:12px; top:12px;
       background: var(--hudBg);
       border:1px solid var(--hudBorder);
       color: var(--hudFg);
-      padding:10px 12px;
-      border-radius:12px;
-      font-size:12px;
-      line-height:1.55;
+      padding:12px 16px;
+      border-radius:14px;
+      font-size:15px;     /* 少し大きめ */
+      font-weight:600;
+      letter-spacing:0.03em;
       pointer-events:none;
       white-space:nowrap;
       max-width: 70vw;
       overflow:hidden;
       text-overflow: ellipsis;
-      display:flex;
-      gap:10px;
-      align-items:center;
+      display:none;
     }
     .hud .nmBadge{
-      padding:4px 8px;
-      border-radius:10px;
-      border:1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.06);
-      display:none;
+      padding:6px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.25);
+      background: rgba(255,255,255,.08);
+      display:inline-block;
     }
 
     /* Modal */
@@ -286,7 +282,6 @@
 <div class="wrap">
   <div class="panel">
     <h1>3D ストリングアート（正 N/M）</h1>
-    <div class="desc"></div>
 
     <div class="controlsTop">
       <button id="addRow" class="btnPrimary">＋ 追加</button>
@@ -302,10 +297,7 @@
 
   <div class="viewer">
     <canvas id="stage"></canvas>
-    <div class="hud" id="hud">
-      <span id="hudText"></span>
-      <span class="nmBadge" id="hudNM"></span>
-    </div>
+    <div class="hud" id="hud"><span class="nmBadge" id="hudNM"></span></div>
   </div>
 </div>
 
@@ -429,7 +421,6 @@ function loadScriptWithFallback(urls){
 }
 
 window.addEventListener("load", async () => {
-  const hudText = document.getElementById("hudText");
   try{
     const threeUrl = await loadScriptWithFallback([
       "./three.min.js",
@@ -442,8 +433,8 @@ window.addEventListener("load", async () => {
     if (typeof THREE === "undefined") throw new Error("THREE is undefined after loading script: " + threeUrl);
     new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
-    hudText.textContent = "起動失敗";
     console.error(e);
+    alert("起動に失敗しました（three.min.js を読み込めませんでした）。\nコンソールを確認してください。");
   }
 });
 
@@ -1001,6 +992,7 @@ class RowBuilder{
 
     const line = new THREE.Line(geo, mat);
     line.userData.rowId = r.id;
+    line.userData.baseColorHex = r.lineColor;   // ★ ハイライト復帰用
     r.pathLine = line;
     group.add(line);
 
@@ -1012,7 +1004,7 @@ class RowBuilder{
 class StringArt3DApp{
   constructor({ threeUrl }){
     this.stage = document.getElementById("stage");
-    this.hudText = document.getElementById("hudText");
+    this.hud = document.getElementById("hud");
     this.hudNM = document.getElementById("hudNM");
     this.rowsEl = document.getElementById("rows");
     this.globalInfoEl = document.getElementById("globalInfo");
@@ -1078,6 +1070,8 @@ class StringArt3DApp{
 
     this._downX = 0;
     this._downY = 0;
+
+    this._pickedLine = null;
   }
 
   requestRender(){ this.scheduler.request(); }
@@ -1100,7 +1094,6 @@ class StringArt3DApp{
       labelSizePx:this.DEFAULT_LABEL_SIZE
     });
 
-    this.hudText.textContent = "";
     this.hidePickedNM();
     this.redrawAll();
   }
@@ -1116,13 +1109,49 @@ class StringArt3DApp{
     }
   }
 
-  showPickedNM(N, M){
-    this.hudNM.textContent = `N=${N}, M=${M}`;
-    this.hudNM.style.display = 'inline-block';
+  showPickedNM(rowId, N, M){
+    this.hudNM.textContent = `#${rowId}  N = ${N},  M = ${M}`;
+    this.hud.style.display = 'block';
   }
+
   hidePickedNM(){
     this.hudNM.textContent = '';
-    this.hudNM.style.display = 'none';
+    this.hud.style.display = 'none';
+  }
+
+  // ★ クリックした線を一瞬ハイライト
+  flashHighlightLine(line){
+    if (!line || !line.material) return;
+
+    // 前回のハイライト復帰が残っていたら解除
+    if (line.userData._hlTimeout){
+      clearTimeout(line.userData._hlTimeout);
+      line.userData._hlTimeout = null;
+    }
+
+    // もともとの色を確実に保持（初回のみ）
+    if (!line.userData._origColorHex){
+      const c = line.material.color;
+      line.userData._origColorHex = "#" + c.getHexString();
+    }
+    if (typeof line.material.opacity === "number" && line.userData._origOpacity == null){
+      line.userData._origOpacity = line.material.opacity;
+    }
+
+    const highlightHex = (this.themeManager.state.theme === "light") ? "#111827" : "#fde047"; // 目立つ色
+    line.material.color.set(highlightHex);
+    line.material.opacity = 1.0;
+    line.material.needsUpdate = true;
+    this.requestRender();
+
+    line.userData._hlTimeout = setTimeout(()=>{
+      const backHex = line.userData._origColorHex || line.userData.baseColorHex;
+      if (backHex) line.material.color.set(backHex);
+      if (line.userData._origOpacity != null) line.material.opacity = line.userData._origOpacity;
+      line.material.needsUpdate = true;
+      line.userData._hlTimeout = null;
+      this.requestRender();
+    }, 220);
   }
 
   getCycleInfo(r){
@@ -1348,7 +1377,6 @@ class StringArt3DApp{
 
       stopGlobalIfNeeded();
       app.hidePickedNM();
-
       app.redrawAll();
     });
 
@@ -1542,8 +1570,7 @@ class StringArt3DApp{
     this.three.rebuildGuides(this.globalState);
 
     this.addRow({ N:null, M:null, start:this.DEFAULT_START, animTimeSec:this.DEFAULT_ANIM_TIME, labelSizePx: this.DEFAULT_LABEL_SIZE });
-
-    this.hudText.textContent = "";
+    this.hidePickedNM();
     this.redrawAll();
   }
 
@@ -1620,6 +1647,7 @@ class StringArt3DApp{
 
     window.addEventListener('resize', ()=> this.redrawAll());
 
+    // クリック判定（ドラッグ除外）
     this.stage.addEventListener('pointerdown', (e)=>{
       this._downX = e.clientX;
       this._downY = e.clientY;
@@ -1642,13 +1670,17 @@ class StringArt3DApp{
 
       const rowId = hitLine.userData.rowId;
       const row = this.rows.find(r=>r.id===rowId);
+
       if (!row || !Number.isInteger(row.N) || !Number.isInteger(row.M)){
         this.hidePickedNM();
         return;
       }
-      this.showPickedNM(row.N, row.M);
+
+      this.showPickedNM(row.id, row.N, row.M);
+      this.flashHighlightLine(hitLine);
     });
 
+    // ダブルクリックで画角リセット
     this.stage.addEventListener('dblclick', (e)=>{
       e.preventDefault();
       this.hidePickedNM();
