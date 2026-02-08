@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（正 N/M・円柱ガイド）</title>
+  <title>3D ストリングアート（正 N/M）</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -20,7 +20,7 @@
 
       --inputBg: rgba(0,0,0,.25);
 
-      /* ★ 追加：テーマで切り替える */
+      /* テーマ切替 */
       --boxBg: rgba(0,0,0,.18);
       --controlsBg: linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55));
     }
@@ -55,7 +55,7 @@
       border:1px solid var(--border);
       border-radius:14px;
       padding:12px;
-      background: var(--boxBg);          /* ★ テーマ変数 */
+      background: var(--boxBg);
       margin-bottom:12px;
     }
 
@@ -78,7 +78,7 @@
       color:var(--fg);
       outline:none;
     }
-    input[type="range"]{ width:100%; }
+    input[type="checkbox"]{ transform: scale(1.1); }
     input[type="color"]{
       width:100%; height:36px;
       border:none; background:transparent; padding:0;
@@ -88,14 +88,9 @@
       display:flex;
       flex-wrap:wrap;
       gap:10px;
-
-      /* ★ 中央寄せ */
-      justify-content:center;
-
+      justify-content:center; /* 中央寄せ */
       position: sticky; top:0; z-index:3;
       padding:10px 0;
-
-      /* ★ テーマ変数 */
       background: var(--controlsBg);
       border-bottom: 1px solid rgba(255,255,255,.06);
     }
@@ -184,11 +179,13 @@
       <div class="row">
         <div class="field">
           <div class="label">N（分割数）</div>
-          <input id="inN" type="number" min="3" step="1" value="30" />
+          <!-- ★ デフォルトは未入力 -->
+          <input id="inN" type="number" min="3" step="1" value="" placeholder="（未入力）" />
         </div>
         <div class="field">
           <div class="label">M（ステップ）</div>
-          <input id="inM" type="number" min="0" step="1" value="3" />
+          <!-- ★ デフォルトは未入力 -->
+          <input id="inM" type="number" min="0" step="1" value="" placeholder="（未入力）" />
         </div>
       </div>
 
@@ -207,8 +204,8 @@
         <div class="field">
           <div class="label">上面ピンの条件</div>
           <select id="selTop">
-            <option value="all">全て</option>
-            <option value="even" selected>偶数のみ</option>
+            <option value="all" selected>全て</option>
+            <option value="even">偶数のみ</option>
             <option value="odd">奇数のみ</option>
             <option value="mod">mod k = r</option>
           </select>
@@ -216,9 +213,9 @@
         <div class="field">
           <div class="label">底面ピンの条件</div>
           <select id="selBottom">
-            <option value="all">全て</option>
+            <option value="all" selected>全て</option>
             <option value="even">偶数のみ</option>
-            <option value="odd" selected>奇数のみ</option>
+            <option value="odd">奇数のみ</option>
             <option value="mod">mod k = r</option>
           </select>
         </div>
@@ -254,6 +251,20 @@
         <div class="field">
           <div class="label">ピンの色</div>
           <input id="colPin" type="color" value="#e5e7eb" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <div class="label">点番号を表示</div>
+          <div style="display:flex; align-items:center; gap:10px; padding:6px 2px;">
+            <input id="chkLabels" type="checkbox" />
+            <span style="font-size:12px; color:var(--muted);">ON</span>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label">点番号サイズ（px）</div>
+          <input id="inLabelPx" type="number" min="10" step="1" value="22" />
         </div>
       </div>
 
@@ -336,6 +347,12 @@ function startApp({ threeUrl }){
     return a;
   };
 
+  function parseMaybeInt(str){
+    const t = String(str ?? "").trim();
+    if (t === "") return null;
+    const v = Math.floor(Number(t));
+    return Number.isFinite(v) ? v : null;
+  }
   function clampInt(v, min, max){
     v = Math.floor(Number(v));
     if (!Number.isFinite(v)) return min;
@@ -395,6 +412,8 @@ function startApp({ threeUrl }){
   const colPin = document.getElementById("colPin");
   const inAnimT = document.getElementById("inAnimT");
   const selTheme = document.getElementById("selTheme");
+  const chkLabels = document.getElementById("chkLabels");
+  const inLabelPx = document.getElementById("inLabelPx");
 
   const btnApply = document.getElementById("btnApply");
   const btnAnim = document.getElementById("btnAnim");
@@ -443,7 +462,6 @@ function startApp({ threeUrl }){
       rootStyle.setProperty("--btnBorder", "rgba(0,0,0,.25)");
       rootStyle.setProperty("--inputBg", "#ffffff");
 
-      /* ★ 追加：ライト用の箱背景/ボタン帯背景 */
       rootStyle.setProperty("--boxBg", "rgba(0,0,0,.03)");
       rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65))");
 
@@ -461,13 +479,26 @@ function startApp({ threeUrl }){
       rootStyle.setProperty("--btnBorder", "rgba(255,255,255,.14)");
       rootStyle.setProperty("--inputBg", "rgba(0,0,0,.25)");
 
-      /* ★ 追加：ダーク用の箱背景/ボタン帯背景 */
       rootStyle.setProperty("--boxBg", "rgba(0,0,0,.18)");
       rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55))");
 
       hud.classList.remove("light");
       scene.background = new THREE.Color("#0b0f17");
     }
+  }
+
+  function getLabelPalette(){
+    // ラベルは見やすさ最優先（縁取り付き）
+    if (selTheme.value === "light") {
+      return {
+        fill: "rgba(17,24,39,0.96)",
+        stroke: "rgba(255,255,255,0.92)"
+      };
+    }
+    return {
+      fill: "rgba(255,255,255,0.92)",
+      stroke: "rgba(0,0,0,0.78)"
+    };
   }
 
   // -----------------------------
@@ -573,6 +604,7 @@ function startApp({ threeUrl }){
         if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
         else x.material.dispose();
       }
+      if (x.texture) x.texture.dispose?.();
     });
   }
 
@@ -584,8 +616,10 @@ function startApp({ threeUrl }){
   }
 
   function buildGuideRings(R, H){
-    const ringMatTop = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
-    const ringMatBot = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.14 });
+    // テーマで色味を少し変える
+    const isLight = selTheme.value === "light";
+    const ringMatTop = new THREE.LineBasicMaterial({ color: 0x111827, transparent:true, opacity: isLight ? 0.18 : 0.20 });
+    const ringMatBot = new THREE.LineBasicMaterial({ color: 0x111827, transparent:true, opacity: isLight ? 0.12 : 0.14 });
 
     const seg = 180;
 
@@ -600,38 +634,112 @@ function startApp({ threeUrl }){
       return new THREE.Line(geo, mat);
     }
 
+    // ダーク時は白寄りに
+    if (!isLight){
+      ringMatTop.color = new THREE.Color(0xffffff);
+      ringMatBot.color = new THREE.Color(0xffffff);
+    }
+
     root.add(ring(+H/2, ringMatTop));
     root.add(ring(-H/2, ringMatBot));
   }
 
-  function buildPins(N, R, z, colorHex, pred){
+  function makeLabelSprite(text, fontPx, fill, stroke){
+    const size = 256; // 固定（解像度）
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const c = canvas.getContext("2d");
+
+    c.clearRect(0,0,size,size);
+
+    // 見やすいように太字
+    c.font = `700 ${fontPx}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    // 縁取り
+    c.lineJoin = "round";
+    c.lineWidth = Math.max(6, fontPx * 0.28);
+    c.strokeStyle = stroke;
+    c.strokeText(text, size/2, size/2);
+
+    // 本体
+    c.fillStyle = fill;
+    c.fillText(text, size/2, size/2);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true
+    });
+
+    const spr = new THREE.Sprite(mat);
+    // sprite.material.map を後で破棄したいので参照を持つ
+    spr.userData._labelTexture = tex;
+    return spr;
+  }
+
+  function buildPins(N, R, z, pinColorHex, pred, showLabels, labelPx){
     const allowed = buildAllowedList(N, pred);
 
     const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
     const m = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(colorHex),
+      color: new THREE.Color(pinColorHex),
       roughness: 0.25,
       metalness: 0.05
     });
 
     const group = new THREE.Group();
+    const labelGroup = new THREE.Group();
+
+    const { fill, stroke } = getLabelPalette();
+    const fontPx = Math.max(14, Math.min(120, Number(labelPx) || 22));
+
+    // ラベルのワールドサイズ：半径に応じて適当に
+    const worldLabelSize = Math.max(0.16, R * 0.12);
+
     for (let i=0;i<N;i++){
       if (!pred(i)) continue;
+
       const ang = TAU * (i / N) - Math.PI/2;
       const x = R * Math.cos(ang);
       const y = R * Math.sin(ang);
+
       const s = new THREE.Mesh(g, m);
       s.position.set(x, y, z);
       group.add(s);
+
+      if (showLabels){
+        const spr = makeLabelSprite(String(i), fontPx, fill, stroke);
+
+        // 点から少し外側にずらす（見やすさ）
+        const nx = (x === 0 && y === 0) ? 1 : (x / Math.hypot(x,y));
+        const ny = (x === 0 && y === 0) ? 0 : (y / Math.hypot(x,y));
+        const off = Math.max(0.22, R * 0.10);
+
+        spr.position.set(x + nx*off, y + ny*off, z);
+
+        // spriteはカメラを向く。scaleで大きさを決める
+        spr.scale.set(worldLabelSize, worldLabelSize, 1);
+
+        labelGroup.add(spr);
+      }
     }
+
     root.add(group);
+    if (showLabels) root.add(labelGroup);
+
     return { allowed };
   }
 
   let lines = null;
   let totalSegments = 0;
-
-  /* ★ ストローク用：完全版の座標を保存 */
   let basePositions = null;
 
   function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor){
@@ -644,7 +752,6 @@ function startApp({ threeUrl }){
     const positions = [];
     let count = 0;
 
-    // topAllowed は「上面で使う点」なので、それだけ線を作る
     const topSet = new Set(topAllowed);
 
     for (let i=0;i<N;i++){
@@ -665,8 +772,6 @@ function startApp({ threeUrl }){
     }
 
     const arr = new Float32Array(positions);
-
-    // ★完全版を保存（ストローク補間で使う）
     basePositions = new Float32Array(arr);
 
     const geo = new THREE.BufferGeometry();
@@ -686,13 +791,12 @@ function startApp({ threeUrl }){
     totalSegments = count;
   }
 
-  /* ★ ストローク（線が伸びる）版 */
   function setLineProgress(p){
     if (!lines || !basePositions) return;
 
     const geo = lines.geometry;
     const posAttr = geo.getAttribute("position");
-    const pos = posAttr.array; // Float32Array
+    const pos = posAttr.array;
 
     const t = Math.max(0, Math.min(1, p)) * totalSegments;
     const k = Math.floor(t);
@@ -701,7 +805,6 @@ function startApp({ threeUrl }){
     const segVisible = (k < totalSegments && frac > 0) ? (k + 1) : k;
     geo.setDrawRange(0, segVisible * 2);
 
-    // 伸びる1本がない場合：最後の補間が残らないように復元だけして終わり
     if (!(k < totalSegments && frac > 0)) {
       if (segVisible > 0){
         const last = (segVisible - 1) * 6;
@@ -716,7 +819,6 @@ function startApp({ threeUrl }){
       return;
     }
 
-    // k番目の線分をfracだけ伸ばす
     const idx = k * 6;
 
     const ax = basePositions[idx+0], ay = basePositions[idx+1], az = basePositions[idx+2];
@@ -739,19 +841,42 @@ function startApp({ threeUrl }){
   let startTime = 0;
   let animDuration = 7.0;
 
-  function updateMetaUI({N,M,step,d,L,topCount,botCount,segCount}){
-    metaEl.innerHTML = `
-      <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=${step}</div>
-      <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
-      <div>上面許可: <b>${topCount}</b> / 底面許可: <b>${botCount}</b></div>
-      <div>糸（線分）: <b>${segCount}</b></div>
-      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / 操作: manual</div>
-    `;
+  function updateMetaUI(html){
+    metaEl.innerHTML = html;
+  }
+
+  function showWaitingUI(){
+    clearRoot();
+    lines = null;
+    totalSegments = 0;
+    basePositions = null;
+
+    hud.textContent = "N と M を入力して「反映」を押してください。";
+    updateMetaUI(`
+      <div><b>待機中</b>: N/M が未入力です</div>
+      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl}</div>
+    `);
+
+    // 画面は空でも、カメラは適当に
+    resetViewToFit(3.0, 4.0);
+    isPlaying = false;
+    btnAnim.textContent = "▶ アニメ再生";
   }
 
   function rebuild({ doFit = true } = {}){
-    const N = clampInt(inN.value, 3, 2000);
-    const M = clampInt(inM.value, 0, 2000000);
+    const Nraw = parseMaybeInt(inN.value);
+    const Mraw = parseMaybeInt(inM.value);
+
+    applyTheme(selTheme.value);
+
+    // ★ N/M未入力なら描画しない（待機UI）
+    if (Nraw == null || Mraw == null){
+      showWaitingUI();
+      return;
+    }
+
+    const N = clampInt(Nraw, 3, 2000);
+    const M = clampInt(Mraw, 0, 2000000);
     const R = clampNum(inR.value, 0.1, 50);
     const H = clampNum(inH.value, 0.1, 80);
 
@@ -768,7 +893,8 @@ function startApp({ threeUrl }){
 
     animDuration = clampNum(inAnimT.value, 0.2, 120);
 
-    applyTheme(selTheme.value);
+    const showLabels = chkLabels.checked;
+    const labelPx = clampInt(inLabelPx.value, 10, 180);
 
     clearRoot();
     lines = null;
@@ -780,8 +906,8 @@ function startApp({ threeUrl }){
     const topPred = makeFilter(topKind, topK, topR);
     const botPred = makeFilter(botKind, botK, botR);
 
-    const topPins = buildPins(N, R, +H/2, pinColor, topPred);
-    const botPins = buildPins(N, R, -H/2, pinColor, botPred);
+    const topPins = buildPins(N, R, +H/2, pinColor, topPred, showLabels, labelPx);
+    const botPins = buildPins(N, R, -H/2, pinColor, botPred, showLabels, labelPx);
 
     buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor);
 
@@ -790,12 +916,14 @@ function startApp({ threeUrl }){
     const L = (step===0) ? 0 : (N/d);
 
     hud.textContent = `N=${N}, M=${M}（step=${step}） / 上:${topKind} 下:${botKind}`;
-    updateMetaUI({
-      N,M,step,d,L,
-      topCount: topPins.allowed.length,
-      botCount: botPins.allowed.length,
-      segCount: totalSegments
-    });
+    updateMetaUI(`
+      <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=${step}</div>
+      <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
+      <div>上面許可: <b>${topPins.allowed.length}</b> / 底面許可: <b>${botPins.allowed.length}</b></div>
+      <div>糸（線分）: <b>${totalSegments}</b></div>
+      <div>点番号: <b>${showLabels ? "ON" : "OFF"}</b></div>
+      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / 操作: manual</div>
+    `);
 
     isPlaying = false;
     btnAnim.textContent = "▶ アニメ再生";
@@ -832,7 +960,7 @@ function startApp({ threeUrl }){
   }
 
   function savePNG(){
-    setLineProgress(1.0);
+    if (lines) setLineProgress(1.0);
     renderer.render(scene, camera);
     const url = renderer.domElement.toDataURL("image/png");
     const a = document.createElement("a");
@@ -860,14 +988,17 @@ function startApp({ threeUrl }){
     }
   });
 
+  // ★ リセットで N/M も未入力に戻す
   btnReset.addEventListener("click", ()=>{
-    inN.value="30"; inM.value="3";
+    inN.value=""; inM.value="";
     inR.value="3.0"; inH.value="4.0";
-    selTop.value="even"; selBottom.value="odd";
+    selTop.value="all"; selBottom.value="all";
     inTopK.value="2"; inTopR.value="0";
     inBotK.value="2"; inBotR.value="1";
     colLine.value="#60a5fa";
     colPin.value="#e5e7eb";
+    chkLabels.checked = false;
+    inLabelPx.value="22";
     inAnimT.value="7.0";
     selTheme.value="dark";
     rebuild({ doFit:true });
@@ -875,7 +1006,20 @@ function startApp({ threeUrl }){
 
   btnShot.addEventListener("click", savePNG);
 
+  // 変更したらその場で見た目だけ変える系（※N/M未入力なら待機UIのまま）
   selTheme.addEventListener("change", ()=> rebuild({ doFit:false }));
+  chkLabels.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inLabelPx.addEventListener("change", ()=> rebuild({ doFit:false }));
+  colPin.addEventListener("input", ()=> rebuild({ doFit:false }));
+  colLine.addEventListener("input", ()=> rebuild({ doFit:false }));
+  selTop.addEventListener("change", ()=> rebuild({ doFit:false }));
+  selBottom.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inTopK.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inTopR.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inBotK.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inBotR.addEventListener("change", ()=> rebuild({ doFit:false }));
+  inR.addEventListener("change", ()=> rebuild({ doFit:true }));
+  inH.addEventListener("change", ()=> rebuild({ doFit:true }));
 
   window.addEventListener("resize", resize);
 
