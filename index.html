@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（円柱 + 正 N/M角形）</title>
+  <title>3D ストリングアート（円柱 + 正 N/M）</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -95,6 +95,7 @@
       color: var(--muted);
     }
     .meta b{ color: var(--fg); }
+
     .viewer{
       position:relative;
       height:100vh;
@@ -120,6 +121,9 @@
       line-height:1.5;
       pointer-events:none;
       white-space:nowrap;
+      max-width: 70vw;
+      overflow:hidden;
+      text-overflow: ellipsis;
     }
     .hud.light{
       background: rgba(255,255,255,.92);
@@ -129,10 +133,16 @@
     .tiny{ font-size:11px; color:var(--muted); line-height:1.55; margin-top:8px; }
   </style>
 </head>
+
 <body>
 <div class="wrap">
   <div class="panel">
-    <h1>3D ストリングアート（透明円柱 + 正 N/M角形）</h1>
+    <h1>3D ストリングアート（透明円柱 + 正 N/M）</h1>
+    <div class="desc">
+      上面・底面の円周上に <b>N</b> 等分点（ピン）を置き，上面の点 <b>i</b> から底面の点 <b>f(i)</b> へ糸（線）を張ります。<br/>
+      基本は <b>f(i)=i+M (mod N)</b>。フィルタ（偶数/奇数/剰余）で「使う点」を制限できます。<br/>
+      フィルタに合わないときは <b>スナップ</b>で許可点へ寄せます（最小構成の仕様）。
+    </div>
 
     <div class="btns">
       <button id="btnApply" class="btnPrimary">反映</button>
@@ -144,7 +154,7 @@
     <div class="box">
       <div class="row">
         <div class="field">
-          <div class="label">N（点の個数）</div>
+          <div class="label">N（分割数）</div>
           <input id="inN" type="number" min="3" step="1" value="30" />
         </div>
         <div class="field">
@@ -220,7 +230,7 @@
 
       <div class="row">
         <div class="field">
-          <div class="label">糸の太さ</div>
+          <div class="label">糸の太さ（※Lineでは環境依存）</div>
           <input id="inLineW" type="number" min="0.5" step="0.5" value="1.5" />
         </div>
         <div class="field">
@@ -242,6 +252,11 @@
           </select>
         </div>
       </div>
+
+      <div class="tiny">
+        ※CDNがブロックされても動くようにフォールバック読み込みを入れています。<br/>
+        ※太さを確実に効かせるなら Tube 化が必要（次段階で対応可）。
+      </div>
     </div>
 
     <div class="box meta" id="meta"></div>
@@ -249,16 +264,66 @@
 
   <div class="viewer">
     <canvas id="stage"></canvas>
-    <div class="hud" id="hud">読み込み中...</div>
+    <div class="hud" id="hud">Three.js を読み込み中…</div>
   </div>
 </div>
 
-<!-- Three.js (non-module / GitHub Pagesで安定) -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-
 <script>
-(() => {
+/**
+ * CDNフォールバックローダー
+ * - 指定したURL群を順に試して、読み込めたらresolve
+ * - 失敗したら次のURLへ
+ */
+function loadScriptWithFallback(urls){
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    const tryNext = () => {
+      if (i >= urls.length) { reject(new Error("All CDN failed: " + urls.join(" | "))); return; }
+      const url = urls[i++];
+      const s = document.createElement("script");
+      s.src = url;
+      s.async = true;
+      s.onload = () => resolve(url);
+      s.onerror = () => { s.remove(); tryNext(); };
+      document.head.appendChild(s);
+    };
+    tryNext();
+  });
+}
+
+window.addEventListener("load", async () => {
+  const hud = document.getElementById("hud");
+  try {
+    // three.min.js
+    hud.textContent = "Three.js を読み込み中…";
+    const threeUrl = await loadScriptWithFallback([
+      "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
+      "https://unpkg.com/three@0.160.0/build/three.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"
+    ]);
+
+    // OrbitControls（失敗しても“描画”は続行したいので、ここはtry/catchで弱く扱う）
+    hud.textContent = "OrbitControls を読み込み中…";
+    let controlsOk = true;
+    try {
+      await loadScriptWithFallback([
+        "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js",
+        "https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"
+      ]);
+    } catch (e) {
+      controlsOk = false;
+    }
+
+    startApp({ controlsOk, threeUrl });
+  } catch (e) {
+    hud.textContent = "起動失敗: CDNがブロックされている可能性があります（学校Wi-Fiなど）。";
+    console.error(e);
+  }
+});
+
+function startApp({ controlsOk, threeUrl }){
+  const hud = document.getElementById("hud");
+
   // -----------------------------
   // Utilities
   // -----------------------------
@@ -289,7 +354,7 @@
     if (kind === "even") return (i)=> (i % 2 === 0);
     if (kind === "odd")  return (i)=> (i % 2 !== 0);
     if (kind === "mod")  return (i)=> (mod(i, k) === r);
-    return (_)=> true; // all
+    return (_)=> true;
   }
 
   function buildAllowedList(N, pred){
@@ -305,11 +370,7 @@
     let bestD = Infinity;
     for (const a of allowed){
       const d = Math.min(mod(a - jj, N), mod(jj - a, N));
-      if (d < bestD){
-        bestD = d;
-        best = a;
-        if (bestD === 0) break;
-      }
+      if (d < bestD){ bestD = d; best = a; if (bestD === 0) break; }
     }
     return best;
   }
@@ -318,7 +379,6 @@
   // DOM
   // -----------------------------
   const cv = document.getElementById("stage");
-  const hud = document.getElementById("hud");
   const metaEl = document.getElementById("meta");
 
   const inN = document.getElementById("inN");
@@ -333,7 +393,7 @@
   const inBotR = document.getElementById("inBotR");
   const colLine = document.getElementById("colLine");
   const colPin = document.getElementById("colPin");
-  const inLineW = document.getElementById("inLineW"); // NOTE: Lineでは太さが効かない環境あり
+  const inLineW = document.getElementById("inLineW"); // NOTE: Lineは太さが効かない環境あり
   const inAnimT = document.getElementById("inAnimT");
   const rngCyl = document.getElementById("rngCyl");
   const selTheme = document.getElementById("selTheme");
@@ -350,7 +410,7 @@
     canvas: cv,
     antialias: true,
     alpha: true,
-    preserveDrawingBuffer: true, // スクショ用
+    preserveDrawingBuffer: true,
   });
   renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
 
@@ -359,11 +419,13 @@
   const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
   camera.position.set(7, 6, 9);
 
-  const controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  let controls = null;
+  if (controlsOk && THREE.OrbitControls){
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+  }
 
-  // Lights
   scene.add(new THREE.AmbientLight(0xffffff, 0.55));
   const dir = new THREE.DirectionalLight(0xffffff, 0.85);
   dir.position.set(6, 10, 8);
@@ -372,11 +434,9 @@
   const root = new THREE.Group();
   scene.add(root);
 
-  // Objects
   let lines = null;
   let totalSegments = 0;
 
-  // Animation state
   let isPlaying = false;
   let startTime = 0;
   let animDuration = 7.0;
@@ -450,10 +510,8 @@
       thickness: 0.3,
       side: THREE.DoubleSide,
     });
-    const mesh = new THREE.Mesh(g, m);
-    root.add(mesh);
+    root.add(new THREE.Mesh(g, m));
 
-    // 上下面リング（ガイド）
     const ringMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
     const seg = 128;
 
@@ -505,6 +563,7 @@
     const positions = [];
     let count = 0;
 
+    // includes は O(N) だけど最小構成としてOK（後で Set 化で高速化可能）
     for (let i=0;i<N;i++){
       if (!topAllowed.includes(i)) continue;
 
@@ -518,14 +577,13 @@
       const ax = R*Math.cos(a), ay = R*Math.sin(a);
       const bx = R*Math.cos(b), by = R*Math.sin(b);
 
-      // segment: (ax,ay,zTop) -> (bx,by,zBot)
       positions.push(ax, ay, zTop, bx, by, zBot);
       count++;
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geo.setDrawRange(0, 0); // アニメで増やす
+    geo.setDrawRange(0, 0);
 
     const mat = new THREE.LineBasicMaterial({
       color: new THREE.Color(lineColor),
@@ -544,7 +602,7 @@
     if (!lines) return;
     const geo = lines.geometry;
     const segToShow = Math.floor(Math.max(0, Math.min(1, p)) * totalSegments);
-    geo.setDrawRange(0, segToShow * 2); // LineSegments: 2 vertices per segment
+    geo.setDrawRange(0, segToShow * 2);
   }
 
   function updateMetaUI({N,M,step,d,L,topCount,botCount,segCount}){
@@ -553,6 +611,7 @@
       <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
       <div>上面許可: <b>${topCount}</b> / 底面許可: <b>${botCount}</b></div>
       <div>糸（線分）: <b>${segCount}</b></div>
+      <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / OrbitControls: ${controlsOk ? "OK" : "NG（回転操作なし）"}</div>
     `;
   }
 
@@ -579,7 +638,6 @@
     applyTheme(selTheme.value);
 
     clearRoot();
-
     buildCylinder(R, H, cylOpacity);
 
     const topPred = makeFilter(topKind, topK, topR);
@@ -602,7 +660,6 @@
       segCount: totalSegments
     });
 
-    // アニメ停止＆全表示
     isPlaying = false;
     btnAnim.textContent = "▶ アニメ再生";
     setLineProgress(1.0);
@@ -621,7 +678,7 @@
 
   function loop(t){
     requestAnimationFrame(loop);
-    controls.update();
+    if (controls) controls.update();
 
     if (isPlaying && lines){
       const elapsed = (t - startTime) / 1000;
@@ -632,7 +689,6 @@
         btnAnim.textContent = "▶ アニメ再生";
       }
     }
-
     renderer.render(scene, camera);
   }
 
@@ -677,15 +733,13 @@
     inAnimT.value="7.0";
     rngCyl.value="0.18";
     selTheme.value="dark";
-    controls.reset();
+    if (controls) controls.reset();
     camera.position.set(7,6,9);
-    controls.update();
     rebuild();
   });
 
   btnShot.addEventListener("click", savePNG);
 
-  // テーマ変更は即反映（rebuildで確実）
   selTheme.addEventListener("change", rebuild);
   rngCyl.addEventListener("input", rebuild);
 
@@ -694,11 +748,16 @@
   // -----------------------------
   // Boot
   // -----------------------------
-  applyTheme("dark");
+  applyTheme(selTheme.value);
   resize();
   rebuild();
   requestAnimationFrame(loop);
-})();
+
+  // Controlsが無い場合はHUDで通知
+  if (!controlsOk){
+    hud.textContent += "（※回転操作は無効：OrbitControlsが読み込めませんでした）";
+  }
+}
 </script>
 </body>
 </html>
