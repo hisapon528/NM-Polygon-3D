@@ -286,7 +286,7 @@
   <div class="panel">
     <h1>3D ストリングアート（正 N/M）</h1>
     <div class="desc">
-      N/M を入力して描画。左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム / ダブルクリック=画角リセット
+      左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム / ダブルクリック=画角リセット
     </div>
 
     <div class="controlsTop">
@@ -435,21 +435,17 @@ window.addEventListener("load", async () => {
   try{
     hudText.textContent = "Three.js 読み込み中…";
     const threeUrl = await loadScriptWithFallback([
-      "./three.min.js", // ★最優先：ローカル同梱（GitHub Pages/学校環境で強い）
+      "./three.min.js",
       "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
       "https://unpkg.com/three@0.160.0/build/three.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js",
       "https://threejs.org/build/three.min.js"
     ]);
 
-    // ここで THREE が存在するか最終チェック
-    if (typeof THREE === "undefined") {
-      throw new Error("THREE is undefined after loading script: " + threeUrl);
-    }
-
+    if (typeof THREE === "undefined") throw new Error("THREE is undefined after loading script: " + threeUrl);
     new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
-    hudText.textContent = "起動失敗: three.min.js が読み込めません（ローカル/CDN）。Consoleを確認してください。";
+    hudText.textContent = "起動失敗: Three.js の読み込みに失敗しました（Consoleを確認）。";
     console.error(e);
   }
 });
@@ -585,12 +581,11 @@ class ThemeManager{
   }
 }
 
-/* ================= Three scene + controls ================= */
+/* ================= Three scene + controls + picking ================= */
 class ThreeScene{
-  constructor({ stage, themeManager, onViewChange }){
+  constructor({ stage, themeManager }){
     this.stage = stage;
     this.themeManager = themeManager;
-    this.onViewChange = onViewChange || (()=>{});
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: stage,
@@ -615,8 +610,7 @@ class ThreeScene{
     this.root3D.add(this.guideGroup);
 
     this.raycaster = new THREE.Raycaster();
-    // 線のクリック当たり判定を取りやすく
-    this.raycaster.params.Line = { threshold: 0.08 };
+    this.raycaster.params.Line = { threshold: 0.10 };
     this.pointerNDC = new THREE.Vector2();
 
     this.view = {
@@ -651,9 +645,6 @@ class ThreeScene{
       this.camera.position.set(x,y,z);
       this.camera.lookAt(v.target);
       this.camera.updateProjectionMatrix();
-
-      // ★カメラが動いたら即反映
-      this.onViewChange();
     };
     this.updateCamera = updateCamera;
 
@@ -719,7 +710,6 @@ class ThreeScene{
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.onViewChange();
   }
 
   render(){
@@ -779,7 +769,6 @@ class ThreeScene{
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
     this.pointerNDC.set(x,y);
-
     this.raycaster.setFromCamera(this.pointerNDC, this.camera);
     const hits = this.raycaster.intersectObjects(lineObjects, false);
     if (!hits.length) return null;
@@ -1002,7 +991,7 @@ class RowBuilder{
     });
 
     const line = new THREE.Line(geo, mat);
-    line.userData.rowId = r.id;
+    line.userData.rowId = r.id; // ★クリックで特定
     r.pathLine = line;
     group.add(line);
 
@@ -1051,8 +1040,7 @@ class StringArt3DApp{
 
     this.three = new ThreeScene({
       stage: this.stage,
-      themeManager: this.themeManager,
-      onViewChange: ()=> this.three.render()
+      themeManager: this.themeManager
     });
 
     this.rowBuilder = new RowBuilder({
@@ -1076,11 +1064,16 @@ class StringArt3DApp{
 
     this.rafAnim = null;
     this.lastT = null;
+
+    // クリック判定（ドラッグ後clickを無視）
+    this._downX = 0;
+    this._downY = 0;
   }
 
   boot(){
     this.themeManager.applyTheme();
     this.three.rebuildGuides(this.globalState);
+
     this._installEvents();
 
     this.addRow({
@@ -1100,6 +1093,10 @@ class StringArt3DApp{
     for (const r of this.rows) this.rowBuilder.buildRow3D(r);
     this.updateGlobalInfo();
     this.three.render();
+
+    if (this.anyAnimationPlaying() && !this.rafAnim){
+      this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
+    }
   }
 
   showPickedNM(N, M){
@@ -1337,9 +1334,6 @@ class StringArt3DApp{
       app.hidePickedNM();
 
       app.redrawAll();
-      if (r.animPlaying && !app.rafAnim){
-        app.rafAnim = requestAnimationFrame((t)=>app._tick(t));
-      }
     });
 
     btnGear.addEventListener('click', ()=> app.openRowSettings(r, card));
@@ -1583,10 +1577,6 @@ class StringArt3DApp{
         this.btnToggleAll.textContent = "⏸ 全アニメ停止";
         this.hidePickedNM();
         this.redrawAll();
-
-        if (this.anyAnimationPlaying() && !this.rafAnim){
-          this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
-        }
       } else {
         for (const r of this.rows){
           r.animPlaying = false;
@@ -1618,25 +1608,21 @@ class StringArt3DApp{
     });
 
     // resize
-    window.addEventListener('resize', ()=>{
-      this.redrawAll();
-    });
+    window.addEventListener('resize', ()=> this.redrawAll());
 
-    // 線クリック（左クリック）でN/M表示、外クリックで消す（ドラッグとは競合させない）
-    let downX = 0, downY = 0;
+    // クリック用（ドラッグ後clickは無視）
     this.stage.addEventListener('pointerdown', (e)=>{
-      downX = e.clientX;
-      downY = e.clientY;
+      this._downX = e.clientX;
+      this._downY = e.clientY;
     });
 
+    // 線クリックでN/M表示、外クリックで消す
     this.stage.addEventListener('click', (e)=>{
-      // 左クリックのみ
-      if (e.button !== 0) return;
+      if (e.button !== 0) return; // 左のみ
 
-      // ドラッグ後のclickは無視（3px超）
-      const dx = e.clientX - downX;
-      const dy = e.clientY - downY;
-      if ((dx*dx + dy*dy) > 9) return;
+      const dx = e.clientX - this._downX;
+      const dy = e.clientY - this._downY;
+      if ((dx*dx + dy*dy) > 9) return; // ドラッグ判定（3px）
 
       const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
       const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
@@ -1655,7 +1641,7 @@ class StringArt3DApp{
       this.showPickedNM(row.N, row.M);
     });
 
-    // ダブルクリックで初期画角に戻す（ついでにN/M表示も消す）
+    // ダブルクリックで画角リセット
     this.stage.addEventListener('dblclick', (e)=>{
       e.preventDefault();
       this.hidePickedNM();
