@@ -163,9 +163,9 @@
   <div class="panel">
     <h1>3D ストリングアート（正 N/M）</h1>
     <div class="desc">
-      上面・底面の円周上に <b>N</b> 等分点（ピン）を置き，上面の点 <b>i</b> から底面の点 <b>f(i)</b> へ糸（線）を張ります。<br/>
-      基本は <b>f(i)=i+M (mod N)</b>。フィルタ（偶数/奇数/剰余）で「使う点」を制限できます。<br/>
-      フィルタに合わないときは <b>スナップ</b>で許可点へ寄せます（最小構成の仕様）。
+      上面・底面の円周上に <b>N</b> 等分点（ピン）を置き，<b>始点0</b>から
+      <b>+M (mod N)</b> で点を辿り，<b>始点に戻るまで</b> 1本の折れ線で結びます。<br/>
+      フィルタ（偶数/奇数/剰余）で「使う点」を制限できます。合わない点は許可点へ <b>スナップ</b>します（最小構成）。
     </div>
 
     <div class="btns">
@@ -392,6 +392,59 @@ function startApp({ threeUrl }){
     return best;
   }
 
+  // ★ 3D版：2D同様に「始点0→+M→…→始点に戻るまで」ノード列を作る
+  function buildCycle3D(N, M, topAllowed, bottomAllowed){
+    const step = mod(M, N);
+
+    const topSet = new Set(topAllowed);
+    const botSet = new Set(bottomAllowed);
+
+    let start = 0;
+    if (!topSet.has(start)) {
+      const snapped = snapToAllowed(N, start, topAllowed);
+      if (snapped == null) return { valid:false, nodes:[] };
+      start = snapped;
+    }
+
+    const nodes = [{ side:"T", idx:start }];
+
+    if (N <= 0 || step === 0){
+      nodes.push({ side:"T", idx:start });
+      return { valid:true, nodes };
+    }
+
+    let curSide = "T";
+    let curIdx = start;
+
+    const seen = new Set([`T:${start}`]);
+    const maxSteps = 2 * N + 10;
+
+    for (let t=0; t<maxSteps; t++){
+      const nextSide = (curSide === "T") ? "B" : "T";
+      const allow = (nextSide === "T") ? topAllowed : bottomAllowed;
+      const allowSet = (nextSide === "T") ? topSet : botSet;
+
+      const rawNext = mod(curIdx + step, N);
+      const nextIdx = allowSet.has(rawNext) ? rawNext : snapToAllowed(N, rawNext, allow);
+      if (nextIdx == null) break;
+
+      nodes.push({ side: nextSide, idx: nextIdx });
+
+      if (nextSide === "T" && nextIdx === start){
+        return { valid:true, nodes };
+      }
+
+      const key = `${nextSide}:${nextIdx}`;
+      if (seen.has(key)) break;
+      seen.add(key);
+
+      curSide = nextSide;
+      curIdx = nextIdx;
+    }
+
+    return { valid:false, nodes };
+  }
+
   // -----------------------------
   // DOM
   // -----------------------------
@@ -461,7 +514,6 @@ function startApp({ threeUrl }){
       rootStyle.setProperty("--btnBgHover", "rgba(0,0,0,.06)");
       rootStyle.setProperty("--btnBorder", "rgba(0,0,0,.25)");
       rootStyle.setProperty("--inputBg", "#ffffff");
-
       rootStyle.setProperty("--boxBg", "rgba(0,0,0,.03)");
       rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65))");
 
@@ -478,7 +530,6 @@ function startApp({ threeUrl }){
       rootStyle.setProperty("--btnBgHover", "rgba(255,255,255,.10)");
       rootStyle.setProperty("--btnBorder", "rgba(255,255,255,.14)");
       rootStyle.setProperty("--inputBg", "rgba(0,0,0,.25)");
-
       rootStyle.setProperty("--boxBg", "rgba(0,0,0,.18)");
       rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55))");
 
@@ -488,17 +539,10 @@ function startApp({ threeUrl }){
   }
 
   function getLabelPalette(){
-    // ラベルは見やすさ最優先（縁取り付き）
     if (selTheme.value === "light") {
-      return {
-        fill: "rgba(17,24,39,0.96)",
-        stroke: "rgba(255,255,255,0.92)"
-      };
+      return { fill: "rgba(17,24,39,0.96)", stroke: "rgba(255,255,255,0.92)" };
     }
-    return {
-      fill: "rgba(255,255,255,0.92)",
-      stroke: "rgba(0,0,0,0.78)"
-    };
+    return { fill: "rgba(255,255,255,0.92)", stroke: "rgba(0,0,0,0.78)" };
   }
 
   // -----------------------------
@@ -604,7 +648,8 @@ function startApp({ threeUrl }){
         if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
         else x.material.dispose();
       }
-      if (x.texture) x.texture.dispose?.();
+      if (x.userData?._labelTexture) x.userData._labelTexture.dispose?.();
+      if (x.material?.map) x.material.map.dispose?.();
     });
   }
 
@@ -616,7 +661,6 @@ function startApp({ threeUrl }){
   }
 
   function buildGuideRings(R, H){
-    // テーマで色味を少し変える
     const isLight = selTheme.value === "light";
     const ringMatTop = new THREE.LineBasicMaterial({ color: 0x111827, transparent:true, opacity: isLight ? 0.18 : 0.20 });
     const ringMatBot = new THREE.LineBasicMaterial({ color: 0x111827, transparent:true, opacity: isLight ? 0.12 : 0.14 });
@@ -634,7 +678,6 @@ function startApp({ threeUrl }){
       return new THREE.Line(geo, mat);
     }
 
-    // ダーク時は白寄りに
     if (!isLight){
       ringMatTop.color = new THREE.Color(0xffffff);
       ringMatBot.color = new THREE.Color(0xffffff);
@@ -645,7 +688,7 @@ function startApp({ threeUrl }){
   }
 
   function makeLabelSprite(text, fontPx, fill, stroke){
-    const size = 256; // 固定（解像度）
+    const size = 256;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
@@ -653,18 +696,15 @@ function startApp({ threeUrl }){
 
     c.clearRect(0,0,size,size);
 
-    // 見やすいように太字
     c.font = `700 ${fontPx}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif`;
     c.textAlign = "center";
     c.textBaseline = "middle";
 
-    // 縁取り
     c.lineJoin = "round";
     c.lineWidth = Math.max(6, fontPx * 0.28);
     c.strokeStyle = stroke;
     c.strokeText(text, size/2, size/2);
 
-    // 本体
     c.fillStyle = fill;
     c.fillText(text, size/2, size/2);
 
@@ -680,7 +720,6 @@ function startApp({ threeUrl }){
     });
 
     const spr = new THREE.Sprite(mat);
-    // sprite.material.map を後で破棄したいので参照を持つ
     spr.userData._labelTexture = tex;
     return spr;
   }
@@ -700,8 +739,6 @@ function startApp({ threeUrl }){
 
     const { fill, stroke } = getLabelPalette();
     const fontPx = Math.max(14, Math.min(120, Number(labelPx) || 22));
-
-    // ラベルのワールドサイズ：半径に応じて適当に
     const worldLabelSize = Math.max(0.16, R * 0.12);
 
     for (let i=0;i<N;i++){
@@ -718,14 +755,12 @@ function startApp({ threeUrl }){
       if (showLabels){
         const spr = makeLabelSprite(String(i), fontPx, fill, stroke);
 
-        // 点から少し外側にずらす（見やすさ）
-        const nx = (x === 0 && y === 0) ? 1 : (x / Math.hypot(x,y));
-        const ny = (x === 0 && y === 0) ? 0 : (y / Math.hypot(x,y));
+        const len = Math.hypot(x,y) || 1;
+        const nx = x / len;
+        const ny = y / len;
         const off = Math.max(0.22, R * 0.10);
 
         spr.position.set(x + nx*off, y + ny*off, z);
-
-        // spriteはカメラを向く。scaleで大きさを決める
         spr.scale.set(worldLabelSize, worldLabelSize, 1);
 
         labelGroup.add(spr);
@@ -738,45 +773,34 @@ function startApp({ threeUrl }){
     return { allowed };
   }
 
-  let lines = null;
-  let totalSegments = 0;
-  let basePositions = null;
+  // -----------------------------
+  // ★ 一本の折れ線（THREE.Line） + ストロークアニメ
+  // -----------------------------
+  let pathLine = null;
+  let pathTotalEdges = 0;
+  let pathBasePos = null;
 
-  function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor){
-    const step = mod(M, N);
-    const bottomSet = new Set(bottomAllowed);
-
+  function buildPathLineFromCycle(N, R, H, nodes, lineColor){
     const zTop = +H/2;
     const zBot = -H/2;
 
-    const positions = [];
-    let count = 0;
-
-    const topSet = new Set(topAllowed);
-
-    for (let i=0;i<N;i++){
-      if (!topSet.has(i)) continue;
-
-      const j0 = mod(i + step, N);
-      const j = bottomSet.has(j0) ? j0 : snapToAllowed(N, j0, bottomAllowed);
-      if (j == null) continue;
-
-      const a = TAU * (i / N) - Math.PI/2;
-      const b = TAU * (j / N) - Math.PI/2;
-
-      const ax = R*Math.cos(a), ay = R*Math.sin(a);
-      const bx = R*Math.cos(b), by = R*Math.sin(b);
-
-      positions.push(ax, ay, zTop, bx, by, zBot);
-      count++;
+    const pts = [];
+    for (const nd of nodes){
+      const ang = TAU * (nd.idx / N) - Math.PI/2;
+      const x = R * Math.cos(ang);
+      const y = R * Math.sin(ang);
+      const z = (nd.side === "T") ? zTop : zBot;
+      pts.push(x, y, z);
     }
 
-    const arr = new Float32Array(positions);
-    basePositions = new Float32Array(arr);
+    pathTotalEdges = Math.max(0, nodes.length - 1);
+
+    const arr = new Float32Array(pts);
+    pathBasePos = new Float32Array(arr);
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
-    geo.setDrawRange(0, 0);
+    geo.setDrawRange(0, 0); // 最初は何も描かない
 
     const mat = new THREE.LineBasicMaterial({
       color: new THREE.Color(lineColor),
@@ -784,54 +808,55 @@ function startApp({ threeUrl }){
       opacity: 0.95,
     });
 
-    const obj = new THREE.LineSegments(geo, mat);
-    root.add(obj);
-
-    lines = obj;
-    totalSegments = count;
+    pathLine = new THREE.Line(geo, mat);
+    root.add(pathLine);
   }
 
+  // ★ p(0..1) を「何本の辺まで」に変換して、最後の辺は補間で伸ばす
   function setLineProgress(p){
-    if (!lines || !basePositions) return;
+    if (!pathLine || !pathBasePos) return;
 
-    const geo = lines.geometry;
+    const geo = pathLine.geometry;
     const posAttr = geo.getAttribute("position");
     const pos = posAttr.array;
 
-    const t = Math.max(0, Math.min(1, p)) * totalSegments;
-    const k = Math.floor(t);
-    const frac = t - k;
+    const t = Math.max(0, Math.min(1, p)) * pathTotalEdges;
+    const whole = Math.floor(t);
+    const frac = t - whole;
 
-    const segVisible = (k < totalSegments && frac > 0) ? (k + 1) : k;
-    geo.setDrawRange(0, segVisible * 2);
-
-    if (!(k < totalSegments && frac > 0)) {
-      if (segVisible > 0){
-        const last = (segVisible - 1) * 6;
-        pos[last+0] = basePositions[last+0];
-        pos[last+1] = basePositions[last+1];
-        pos[last+2] = basePositions[last+2];
-        pos[last+3] = basePositions[last+3];
-        pos[last+4] = basePositions[last+4];
-        pos[last+5] = basePositions[last+5];
-        posAttr.needsUpdate = true;
-      }
+    if (pathTotalEdges <= 0){
+      geo.setDrawRange(0, 0);
       return;
     }
 
-    const idx = k * 6;
+    if (whole < pathTotalEdges && frac > 0){
+      const visibleVerts = (whole + 2);
+      geo.setDrawRange(0, visibleVerts);
 
-    const ax = basePositions[idx+0], ay = basePositions[idx+1], az = basePositions[idx+2];
-    const bx = basePositions[idx+3], by = basePositions[idx+4], bz = basePositions[idx+5];
+      const aIdx = whole;
+      const bIdx = whole + 1;
 
-    const mx = ax + (bx - ax) * frac;
-    const my = ay + (by - ay) * frac;
-    const mz = az + (bz - az) * frac;
+      const ax = pathBasePos[aIdx*3+0], ay = pathBasePos[aIdx*3+1], az = pathBasePos[aIdx*3+2];
+      const bx = pathBasePos[bIdx*3+0], by = pathBasePos[bIdx*3+1], bz = pathBasePos[bIdx*3+2];
 
-    pos[idx+0] = ax; pos[idx+1] = ay; pos[idx+2] = az;
-    pos[idx+3] = mx; pos[idx+4] = my; pos[idx+5] = mz;
+      pos[bIdx*3+0] = ax + (bx-ax)*frac;
+      pos[bIdx*3+1] = ay + (by-ay)*frac;
+      pos[bIdx*3+2] = az + (bz-az)*frac;
 
-    posAttr.needsUpdate = true;
+      posAttr.needsUpdate = true;
+      return;
+    }
+
+    const visibleVerts = (whole + 1);
+    geo.setDrawRange(0, visibleVerts);
+
+    if (visibleVerts >= 1){
+      const last = (visibleVerts - 1);
+      pos[last*3+0] = pathBasePos[last*3+0];
+      pos[last*3+1] = pathBasePos[last*3+1];
+      pos[last*3+2] = pathBasePos[last*3+2];
+      posAttr.needsUpdate = true;
+    }
   }
 
   // -----------------------------
@@ -847,9 +872,9 @@ function startApp({ threeUrl }){
 
   function showWaitingUI(){
     clearRoot();
-    lines = null;
-    totalSegments = 0;
-    basePositions = null;
+    pathLine = null;
+    pathTotalEdges = 0;
+    pathBasePos = null;
 
     hud.textContent = "N と M を入力して「反映」を押してください。";
     updateMetaUI(`
@@ -857,7 +882,6 @@ function startApp({ threeUrl }){
       <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl}</div>
     `);
 
-    // 画面は空でも、カメラは適当に
     resetViewToFit(3.0, 4.0);
     isPlaying = false;
     btnAnim.textContent = "▶ アニメ再生";
@@ -869,7 +893,6 @@ function startApp({ threeUrl }){
 
     applyTheme(selTheme.value);
 
-    // ★ N/M未入力なら描画しない（待機UI）
     if (Nraw == null || Mraw == null){
       showWaitingUI();
       return;
@@ -897,9 +920,9 @@ function startApp({ threeUrl }){
     const labelPx = clampInt(inLabelPx.value, 10, 180);
 
     clearRoot();
-    lines = null;
-    totalSegments = 0;
-    basePositions = null;
+    pathLine = null;
+    pathTotalEdges = 0;
+    pathBasePos = null;
 
     buildGuideRings(R, H);
 
@@ -909,7 +932,15 @@ function startApp({ threeUrl }){
     const topPins = buildPins(N, R, +H/2, pinColor, topPred, showLabels, labelPx);
     const botPins = buildPins(N, R, -H/2, pinColor, botPred, showLabels, labelPx);
 
-    buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor);
+    // ★ 2D同様の「巡回」(始点0→…→始点に戻る)
+    const cyc = buildCycle3D(N, M, topPins.allowed, botPins.allowed);
+    if (!cyc.valid || cyc.nodes.length < 2){
+      hud.textContent = "フィルタが強すぎて始点に戻れません（条件を緩めてください）";
+      updateMetaUI(`<div><b>無効</b>: 始点に戻る巡回が作れません</div>`);
+      return;
+    }
+
+    buildPathLineFromCycle(N, R, H, cyc.nodes, lineColor);
 
     const step = mod(M, N);
     const d = gcd(N, step);
@@ -920,7 +951,7 @@ function startApp({ threeUrl }){
       <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=${step}</div>
       <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
       <div>上面許可: <b>${topPins.allowed.length}</b> / 底面許可: <b>${botPins.allowed.length}</b></div>
-      <div>糸（線分）: <b>${totalSegments}</b></div>
+      <div>折れ線の辺数: <b>${pathTotalEdges}</b></div>
       <div>点番号: <b>${showLabels ? "ON" : "OFF"}</b></div>
       <div style="margin-top:6px; opacity:.85;">THREE: ${threeUrl} / 操作: manual</div>
     `);
@@ -947,7 +978,7 @@ function startApp({ threeUrl }){
   function loop(t){
     requestAnimationFrame(loop);
 
-    if (isPlaying && lines){
+    if (isPlaying && pathLine){
       const elapsed = (t - startTime) / 1000;
       const p = Math.min(1, elapsed / animDuration);
       setLineProgress(p);
@@ -960,7 +991,7 @@ function startApp({ threeUrl }){
   }
 
   function savePNG(){
-    if (lines) setLineProgress(1.0);
+    if (pathLine) setLineProgress(1.0);
     renderer.render(scene, camera);
     const url = renderer.domElement.toDataURL("image/png");
     const a = document.createElement("a");
@@ -977,7 +1008,7 @@ function startApp({ threeUrl }){
   btnApply.addEventListener("click", () => rebuild({ doFit:true }));
 
   btnAnim.addEventListener("click", ()=>{
-    if (!lines) return;
+    if (!pathLine) return;
     isPlaying = !isPlaying;
     if (isPlaying){
       startTime = performance.now();
@@ -1006,7 +1037,6 @@ function startApp({ threeUrl }){
 
   btnShot.addEventListener("click", savePNG);
 
-  // 変更したらその場で見た目だけ変える系（※N/M未入力なら待機UIのまま）
   selTheme.addEventListener("change", ()=> rebuild({ doFit:false }));
   chkLabels.addEventListener("change", ()=> rebuild({ doFit:false }));
   inLabelPx.addEventListener("change", ()=> rebuild({ doFit:false }));
