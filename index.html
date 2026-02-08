@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（円柱 + 正 N/M）</title>
+  <title>3D ストリングアート（円柱 + 正 N/M角形）</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -132,12 +132,7 @@
 <body>
 <div class="wrap">
   <div class="panel">
-    <h1>3D ストリングアート（透明円柱 + 正 N/M）</h1>
-    <div class="desc">
-      上面・底面の円周上に <b>N</b> 等分点（ピン）を置き，上面の点 <b>i</b> から底面の点 <b>f(i)</b> へ糸（線）を張ります。<br/>
-      基本は <b>f(i)=i+M (mod N)</b>。フィルタ（偶数/奇数/剰余）で「使う点」を制限できます。<br/>
-      フィルタに合わないときは <b>スナップ</b>で許可点へ寄せます（最小構成の仕様）。
-    </div>
+    <h1>3D ストリングアート（透明円柱 + 正 N/M角形）</h1>
 
     <div class="btns">
       <button id="btnApply" class="btnPrimary">反映</button>
@@ -149,7 +144,7 @@
     <div class="box">
       <div class="row">
         <div class="field">
-          <div class="label">N（分割数）</div>
+          <div class="label">N（点の個数）</div>
           <input id="inN" type="number" min="3" step="1" value="30" />
         </div>
         <div class="field">
@@ -225,7 +220,7 @@
 
       <div class="row">
         <div class="field">
-          <div class="label">糸の太さ（※Lineでは環境依存で効かないことがあります）</div>
+          <div class="label">糸の太さ</div>
           <input id="inLineW" type="number" min="0.5" step="0.5" value="1.5" />
         </div>
         <div class="field">
@@ -246,11 +241,6 @@
             <option value="light">ライト</option>
           </select>
         </div>
-      </div>
-
-      <div class="tiny">
-        ・フィルタに合わない点は、底面側を「最も近い許可点」へスナップします（角度距離最小）。<br/>
-        ・糸は最小構成として LineSegments で描画（軽量）。「太さ」を確実にしたいなら Tube化が必要です。
       </div>
     </div>
 
