@@ -7,7 +7,6 @@
 
   <style>
     :root{
-      /* Theme vars (default: dark) */
       --bg:#0b0f17;
       --bgImg: radial-gradient(1200px 700px at 30% 20%, rgba(17,24,39,1), rgba(5,7,11,1));
       --fg:#e5e7eb;
@@ -115,7 +114,6 @@
       border:1px solid rgba(255,255,255,.08);
       border-radius:14px;
       background: var(--cardBg);
-      box-shadow:none;
     }
     .rowCard .label{
       font-size:11px; color:var(--muted); margin-bottom:4px;
@@ -200,6 +198,16 @@
       max-width: 70vw;
       overflow:hidden;
       text-overflow: ellipsis;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .hud .nmBadge{
+      padding:4px 8px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.06);
+      display:none;
     }
 
     /* Modal */
@@ -276,13 +284,6 @@
       line-height: 1.5;
       margin-top: 8px;
     }
-    .footerNote{
-      margin-top:10px;
-      font-size:11px;
-      color:var(--muted);
-      line-height:1.55;
-      padding-bottom: 16px;
-    }
   </style>
 </head>
 
@@ -291,9 +292,7 @@
   <div class="panel">
     <h1>3D ストリングアート（正 N/M）</h1>
     <div class="desc">
-      2D版と同様に <b>start</b> から <b>+M (mod N)</b> で点を辿り，<b>start に戻るまで</b> 1本の折れ線として結びます。<br/>
-      各行（図形）ごとに <b>N/M</b> を設定し，<b>▶/⚙/削除</b> が使えます。<br/>
-      操作：左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム
+      N/M を入力して描画。左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム
     </div>
 
     <div class="controlsTop">
@@ -301,25 +300,23 @@
       <button id="resetAll" class="btnWarn">リセット</button>
       <button id="toggleAll" class="btnToggle">▶ 全アニメ再生</button>
       <button id="openGlobal" class="btnWarn">設定</button>
-      <button id="saveAll">スクリーンショット保存（PNG）</button>
+      <button id="saveAll">PNG保存</button>
     </div>
 
     <div class="rows" id="rows"></div>
     <div class="globalBox" id="globalInfo"></div>
-
-    <div class="footerNote">
-      ※ M は内部で <b>M (mod N)</b>，始点は <b>start (mod N)</b> に正規化します。<br/>
-      ※ 現段階では「上面/底面の点の制限」は廃止し，常に全点を表示します。<br/>
-    </div>
   </div>
 
   <div class="viewer">
     <canvas id="stage"></canvas>
-    <div class="hud" id="hud">起動中…</div>
+    <div class="hud" id="hud">
+      <span id="hudText">起動中…</span>
+      <span class="nmBadge" id="hudNM"></span>
+    </div>
   </div>
 </div>
 
-<!-- 行設定モーダル（2D版と同等） -->
+<!-- 行設定モーダル -->
 <div class="modalOverlay" id="rowModalOverlay">
   <div class="modal" role="dialog" aria-modal="true">
     <div class="modalHeader">
@@ -375,8 +372,7 @@
       </div>
 
       <div class="tiny">
-        ※始点は内部で <b>start mod N</b> に正規化します。<br/>
-        ※点番号サイズのデフォルトは <b>100</b> です。<br/>
+        ※ start は内部で start mod N
       </div>
     </div>
   </div>
@@ -395,41 +391,40 @@
         <div class="left">背景</div>
         <div class="right">
           <select id="optTheme" class="miniInput">
-            <option value="dark">ダークモード</option>
-            <option value="light">ライトモード</option>
+            <option value="dark">ダーク</option>
+            <option value="light">ライト</option>
           </select>
         </div>
       </div>
 
       <div class="modalRow">
-        <div class="left">円の外枠の色</div>
+        <div class="left">円ガイドの色</div>
         <div class="right">
           <input type="color" id="optCircleColor">
         </div>
       </div>
 
       <div class="modalRow">
-        <div class="left">円柱 半径 R</div>
+        <div class="left">半径 R</div>
         <div class="right">
           <input class="miniInput" type="number" id="optRadius" min="0.1" step="0.1">
         </div>
       </div>
 
       <div class="modalRow">
-        <div class="left">円柱 高さ H</div>
+        <div class="left">高さ H</div>
         <div class="right">
           <input class="miniInput" type="number" id="optHeight" min="0.1" step="0.1">
         </div>
-      </div>
-
-      <div class="tiny">
-        ※円柱本体（側面）は描かず，上面/底面の円ガイドのみ描画します。<br/>
       </div>
     </div>
   </div>
 </div>
 
 <script>
+/* =========================================================
+   Script loader
+========================================================= */
 function loadScriptWithFallback(urls){
   return new Promise((resolve, reject) => {
     let i = 0;
@@ -448,74 +443,39 @@ function loadScriptWithFallback(urls){
 }
 
 window.addEventListener("load", async () => {
-  const hud = document.getElementById("hud");
+  const hudText = document.getElementById("hudText");
   try{
-    hud.textContent = "Three.js を読み込み中…";
+    hudText.textContent = "Three.js 読み込み中…";
     const threeUrl = await loadScriptWithFallback([
       "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
       "https://unpkg.com/three@0.160.0/build/three.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"
     ]);
-    startApp({ threeUrl });
+    new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
-    hud.textContent = "起動失敗: CDNがブロックされている可能性があります。";
+    hudText.textContent = "起動失敗: CDNがブロックされている可能性があります。";
     console.error(e);
   }
 });
 
-function startApp({ threeUrl }){
-  // =========================================================
-  // DOM
-  // =========================================================
-  const stage = document.getElementById("stage");
-  const hud = document.getElementById("hud");
-  const rowsEl = document.getElementById("rows");
-  const globalInfoEl = document.getElementById("globalInfo");
-
-  const btnAdd = document.getElementById("addRow");
-  const btnReset = document.getElementById("resetAll");
-  const btnToggleAll = document.getElementById("toggleAll");
-  const btnSave = document.getElementById("saveAll");
-  const btnOpenGlobal = document.getElementById("openGlobal");
-
-  // Row modal
-  const rowModalOverlay = document.getElementById('rowModalOverlay');
-  const rowModalTitle = document.getElementById('rowModalTitle');
-  const rowModalClose = document.getElementById('rowModalClose');
-  const optVisible = document.getElementById('optVisible');
-  const optShowPoints = document.getElementById('optShowPoints');
-  const optShowLabels = document.getElementById('optShowLabels');
-  const optLabelSize = document.getElementById('optLabelSize');
-  const optLineColor = document.getElementById('optLineColor');
-  const optPointColor = document.getElementById('optPointColor');
-  const optAnimTime = document.getElementById('optAnimTime');
-  const optStart = document.getElementById('optStart');
-
-  // Global modal
-  const globalModalOverlay = document.getElementById('globalModalOverlay');
-  const globalModalClose = document.getElementById('globalModalClose');
-  const optTheme = document.getElementById('optTheme');
-  const optCircleColor = document.getElementById('optCircleColor');
-  const optRadius = document.getElementById('optRadius');
-  const optHeight = document.getElementById('optHeight');
-
-  // =========================================================
-  // Math utils
-  // =========================================================
-  const TAU = Math.PI * 2;
-  const mod = (n, m) => ((n % m) + m) % m;
-
-  function gcd(a,b){
+/* =========================================================
+   Utils
+========================================================= */
+class MathUtil{
+  static TAU = Math.PI * 2;
+  static mod(n, m){ return ((n % m) + m) % m; }
+  static gcd(a,b){
     a = Math.abs(a); b = Math.abs(b);
     while(b!==0){ const t=a%b; a=b; b=t; }
     return a;
   }
+}
 
-  // 2Dと同様の「巡回」を3Dノード列へ
-  // nodes: [{side:"T"|"B", idx:int}, ...] 末尾は start(T) に戻った点
-  function buildCycle3D(N, M, start){
-    const step = mod(M, N);
-    const s = mod(start, N);
+/** 2Dと同様の「巡回」を3Dのノード列へ（上面/底面を交互） */
+class CycleBuilder{
+  static buildCycle3D(N, M, start){
+    const step = MathUtil.mod(M, N);
+    const s = MathUtil.mod(start, N);
 
     const nodes = [{ side:"T", idx:s }];
 
@@ -532,8 +492,7 @@ function startApp({ threeUrl }){
 
     for (let t=0; t<maxSteps; t++){
       const nextSide = (curSide === "T") ? "B" : "T";
-      const nextIdx = mod(curIdx + step, N);
-
+      const nextIdx = MathUtil.mod(curIdx + step, N);
       nodes.push({ side: nextSide, idx: nextIdx });
 
       if (nextSide === "T" && nextIdx === s){
@@ -550,235 +509,253 @@ function startApp({ threeUrl }){
 
     return { valid:false, nodes, step, edges: Math.max(0, nodes.length-1) };
   }
+}
 
-  // =========================================================
-  // Theme manager (CSS vars + scene background)
-  // =========================================================
-  class ThemeManager{
-    constructor(){
-      this.state = {
-        theme: 'dark',
-        circleHex: '#b0b0b0',
-      };
-    }
-    applyTheme(scheduleDrawFn){
-      const root = document.documentElement.style;
-      if (this.state.theme === 'light'){
-        root.setProperty('--bg', '#ffffff');
-        root.setProperty('--bgImg', 'none');
-        root.setProperty('--fg', '#111827');
-        root.setProperty('--muted', '#374151');
-
-        root.setProperty('--panel', '#ffffff');
-        root.setProperty('--panelSolid', '#ffffff');
-
-        root.setProperty('--border', 'rgba(0,0,0,.12)');
-        root.setProperty('--border2', 'rgba(0,0,0,.16)');
-
-        root.setProperty('--btnBg', '#ffffff');
-        root.setProperty('--btnBgHover', 'rgba(0,0,0,.06)');
-        root.setProperty('--btnBorder', 'rgba(0,0,0,.30)');
-
-        root.setProperty('--controlsBg', 'linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65))');
-        root.setProperty('--boxBg', 'rgba(0,0,0,.03)');
-        root.setProperty('--cardBg', 'rgba(0,0,0,.02)');
-
-        root.setProperty('--overlayBg', 'rgba(0,0,0,.25)');
-        root.setProperty('--modalBg', '#ffffff');
-        root.setProperty('--modalBorder', 'rgba(0,0,0,.18)');
-        root.setProperty('--modalBodyBg', '#ffffff');
-        root.setProperty('--modalRowBg', '#ffffff');
-        root.setProperty('--modalRowBorder', 'rgba(0,0,0,.12)');
-        root.setProperty('--inputBg', '#ffffff');
-        root.setProperty('--shadow', '0 20px 60px rgba(0,0,0,.18)');
-
-        root.setProperty('--hudBg', 'rgba(255,255,255,.92)');
-        root.setProperty('--hudFg', 'rgba(17,24,39,.98)');
-        root.setProperty('--hudBorder', 'rgba(0,0,0,.20)');
-
-      } else {
-        root.setProperty('--bg', '#0b0f17');
-        root.setProperty('--bgImg', 'radial-gradient(1200px 700px at 30% 20%, rgba(17,24,39,1), rgba(5,7,11,1))');
-        root.setProperty('--fg', '#e5e7eb');
-        root.setProperty('--muted', '#9ca3af');
-
-        root.setProperty('--panel', 'rgba(17,24,39,.86)');
-        root.setProperty('--panelSolid', '#111827');
-
-        root.setProperty('--border', 'rgba(255,255,255,.10)');
-        root.setProperty('--border2', 'rgba(255,255,255,.14)');
-
-        root.setProperty('--btnBg', 'rgba(255,255,255,.06)');
-        root.setProperty('--btnBgHover', 'rgba(255,255,255,.10)');
-        root.setProperty('--btnBorder', 'rgba(255,255,255,.14)');
-
-        root.setProperty('--controlsBg', 'linear-gradient(to bottom, var(--panelSolid), rgba(17,24,39,.60))');
-        root.setProperty('--boxBg', 'rgba(0,0,0,.18)');
-        root.setProperty('--cardBg', 'rgba(255,255,255,.04)');
-
-        root.setProperty('--overlayBg', 'rgba(0,0,0,.55)');
-        root.setProperty('--modalBg', 'rgba(17,24,39,.96)');
-        root.setProperty('--modalBorder', 'rgba(255,255,255,.10)');
-        root.setProperty('--modalBodyBg', 'rgba(0,0,0,.18)');
-        root.setProperty('--modalRowBg', 'rgba(255,255,255,.03)');
-        root.setProperty('--modalRowBorder', 'rgba(255,255,255,.08)');
-        root.setProperty('--inputBg', 'rgba(0,0,0,.25)');
-        root.setProperty('--shadow', '0 20px 60px rgba(0,0,0,.45)');
-
-        root.setProperty('--hudBg', 'rgba(0,0,0,.55)');
-        root.setProperty('--hudFg', 'rgba(255,255,255,.92)');
-        root.setProperty('--hudBorder', 'rgba(255,255,255,.18)');
-      }
-      scheduleDrawFn();
-    }
+/* =========================================================
+   Theme manager
+========================================================= */
+class ThemeManager{
+  constructor(){
+    this.state = { theme: 'dark', circleHex: '#b0b0b0' };
   }
-  const themeManager = new ThemeManager();
+  applyTheme(){
+    const root = document.documentElement.style;
+    if (this.state.theme === 'light'){
+      root.setProperty('--bg', '#ffffff');
+      root.setProperty('--bgImg', 'none');
+      root.setProperty('--fg', '#111827');
+      root.setProperty('--muted', '#374151');
 
-  // =========================================================
-  // Three.js scene
-  // =========================================================
-  const renderer = new THREE.WebGLRenderer({
-    canvas: stage,
-    antialias: true,
-    alpha: false,
-    preserveDrawingBuffer: true,
-  });
-  renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
+      root.setProperty('--panel', '#ffffff');
+      root.setProperty('--panelSolid', '#ffffff');
 
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
+      root.setProperty('--border', 'rgba(0,0,0,.12)');
+      root.setProperty('--border2', 'rgba(0,0,0,.16)');
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.60));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.90);
-  dir.position.set(6, 10, 8);
-  scene.add(dir);
+      root.setProperty('--btnBg', '#ffffff');
+      root.setProperty('--btnBgHover', 'rgba(0,0,0,.06)');
+      root.setProperty('--btnBorder', 'rgba(0,0,0,.30)');
 
-  const root3D = new THREE.Group();
-  scene.add(root3D);
+      root.setProperty('--controlsBg', 'linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65))');
+      root.setProperty('--boxBg', 'rgba(0,0,0,.03)');
+      root.setProperty('--cardBg', 'rgba(0,0,0,.02)');
 
-  const guideGroup = new THREE.Group();
-  root3D.add(guideGroup);
+      root.setProperty('--overlayBg', 'rgba(0,0,0,.25)');
+      root.setProperty('--modalBg', '#ffffff');
+      root.setProperty('--modalBorder', 'rgba(0,0,0,.18)');
+      root.setProperty('--modalBodyBg', '#ffffff');
+      root.setProperty('--modalRowBg', '#ffffff');
+      root.setProperty('--modalRowBorder', 'rgba(0,0,0,.12)');
+      root.setProperty('--inputBg', '#ffffff');
+      root.setProperty('--shadow', '0 20px 60px rgba(0,0,0,.18)');
 
-  // =========================================================
-  // Manual camera control
-  // =========================================================
-  stage.addEventListener("contextmenu", (e)=>e.preventDefault());
-
-  const view = {
-    target: new THREE.Vector3(0,0,0),
-    dist: 12,
-    yaw: 0.9,
-    pitch: 0.55,
-    minDist: 2.0,
-    maxDist: 120.0,
-    minPitch: -1.45,
-    maxPitch:  1.45
-  };
-
-  function updateCamera(){
-    const cp = Math.cos(view.pitch);
-    const sp = Math.sin(view.pitch);
-    const cy = Math.cos(view.yaw);
-    const sy = Math.sin(view.yaw);
-
-    const x = view.target.x + view.dist * cp * cy;
-    const y = view.target.y + view.dist * sp;
-    const z = view.target.z + view.dist * cp * sy;
-
-    camera.position.set(x,y,z);
-    camera.lookAt(view.target);
-    camera.updateProjectionMatrix();
-  }
-
-  function resetViewToFit(R,H){
-    const bound = Math.sqrt(R*R + (H*0.5)*(H*0.5));
-    view.dist = Math.max(3, bound * 3.0);
-    view.target.set(0,0,0);
-    view.yaw = 0.9;
-    view.pitch = 0.55;
-    updateCamera();
-  }
-
-  function panScale(){
-    return view.dist * 0.0012;
-  }
-
-  let dragging = false;
-  let dragButton = 0;
-  let lastX = 0, lastY = 0;
-
-  stage.addEventListener("pointerdown", (e)=>{
-    dragging = true;
-    dragButton = e.button;
-    lastX = e.clientX;
-    lastY = e.clientY;
-    stage.classList.add("dragging");
-    stage.setPointerCapture(e.pointerId);
-  });
-
-  stage.addEventListener("pointerup", (e)=>{
-    dragging = false;
-    stage.classList.remove("dragging");
-    try{ stage.releasePointerCapture(e.pointerId); }catch(_){}
-  });
-
-  stage.addEventListener("pointermove", (e)=>{
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
-
-    if (dragButton === 2) {
-      const s = panScale();
-      const forward = new THREE.Vector3().subVectors(view.target, camera.position).normalize();
-      const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-
-      view.target.addScaledVector(right, -dx * s);
-      view.target.addScaledVector(up,   dy * s);
-      updateCamera();
+      root.setProperty('--hudBg', 'rgba(255,255,255,.92)');
+      root.setProperty('--hudFg', 'rgba(17,24,39,.98)');
+      root.setProperty('--hudBorder', 'rgba(0,0,0,.20)');
     } else {
-      view.yaw   -= dx * 0.006;
-      view.pitch -= dy * 0.006;
-      view.pitch = Math.max(view.minPitch, Math.min(view.maxPitch, view.pitch));
-      updateCamera();
+      root.setProperty('--bg', '#0b0f17');
+      root.setProperty('--bgImg', 'radial-gradient(1200px 700px at 30% 20%, rgba(17,24,39,1), rgba(5,7,11,1))');
+      root.setProperty('--fg', '#e5e7eb');
+      root.setProperty('--muted', '#9ca3af');
+
+      root.setProperty('--panel', 'rgba(17,24,39,.86)');
+      root.setProperty('--panelSolid', '#111827');
+
+      root.setProperty('--border', 'rgba(255,255,255,.10)');
+      root.setProperty('--border2', 'rgba(255,255,255,.14)');
+
+      root.setProperty('--btnBg', 'rgba(255,255,255,.06)');
+      root.setProperty('--btnBgHover', 'rgba(255,255,255,.10)');
+      root.setProperty('--btnBorder', 'rgba(255,255,255,.14)');
+
+      root.setProperty('--controlsBg', 'linear-gradient(to bottom, var(--panelSolid), rgba(17,24,39,.60))');
+      root.setProperty('--boxBg', 'rgba(0,0,0,.18)');
+      root.setProperty('--cardBg', 'rgba(255,255,255,.04)');
+
+      root.setProperty('--overlayBg', 'rgba(0,0,0,.55)');
+      root.setProperty('--modalBg', 'rgba(17,24,39,.96)');
+      root.setProperty('--modalBorder', 'rgba(255,255,255,.10)');
+      root.setProperty('--modalBodyBg', 'rgba(0,0,0,.18)');
+      root.setProperty('--modalRowBg', 'rgba(255,255,255,.03)');
+      root.setProperty('--modalRowBorder', 'rgba(255,255,255,.08)');
+      root.setProperty('--inputBg', 'rgba(0,0,0,.25)');
+      root.setProperty('--shadow', '0 20px 60px rgba(0,0,0,.45)');
+
+      root.setProperty('--hudBg', 'rgba(0,0,0,.55)');
+      root.setProperty('--hudFg', 'rgba(255,255,255,.92)');
+      root.setProperty('--hudBorder', 'rgba(255,255,255,.18)');
     }
-  });
+  }
+  getLabelPalette(){
+    if (this.state.theme === 'light'){
+      return { fill: "rgba(17,24,39,0.96)", stroke: "rgba(255,255,255,0.92)" };
+    }
+    return { fill: "rgba(255,255,255,0.92)", stroke: "rgba(0,0,0,0.78)" };
+  }
+}
 
-  stage.addEventListener("wheel", (e)=>{
-    e.preventDefault();
-    const factor = Math.exp(e.deltaY * 0.0012);
-    view.dist *= factor;
-    view.dist = Math.max(view.minDist, Math.min(view.maxDist, view.dist));
+/* =========================================================
+   Three scene wrapper
+========================================================= */
+class ThreeScene{
+  constructor({ stage, themeManager }){
+    this.stage = stage;
+    this.themeManager = themeManager;
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: stage,
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+    });
+    this.renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.01, 500);
+
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.60));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.90);
+    dir.position.set(6, 10, 8);
+    this.scene.add(dir);
+
+    this.root3D = new THREE.Group();
+    this.scene.add(this.root3D);
+
+    this.guideGroup = new THREE.Group();
+    this.root3D.add(this.guideGroup);
+
+    // Raycaster
+    this.raycaster = new THREE.Raycaster();
+    this.raycaster.params.Line = { threshold: 0.08 }; // ワールド単位
+    this.pointerNDC = new THREE.Vector2();
+
+    this.view = {
+      target: new THREE.Vector3(0,0,0),
+      dist: 12,
+      yaw: 0.9,
+      pitch: 0.55,
+      minDist: 2.0,
+      maxDist: 120.0,
+      minPitch: -1.45,
+      maxPitch:  1.45
+    };
+
+    this._installCameraControls();
+  }
+
+  _installCameraControls(){
+    const stage = this.stage;
+    stage.addEventListener("contextmenu", (e)=>e.preventDefault());
+
+    const updateCamera = () => {
+      const v = this.view;
+      const cp = Math.cos(v.pitch);
+      const sp = Math.sin(v.pitch);
+      const cy = Math.cos(v.yaw);
+      const sy = Math.sin(v.yaw);
+
+      const x = v.target.x + v.dist * cp * cy;
+      const y = v.target.y + v.dist * sp;
+      const z = v.target.z + v.dist * cp * sy;
+
+      this.camera.position.set(x,y,z);
+      this.camera.lookAt(v.target);
+      this.camera.updateProjectionMatrix();
+    };
+    this.updateCamera = updateCamera;
+
+    const panScale = () => this.view.dist * 0.0012;
+
+    let dragging = false;
+    let dragButton = 0;
+    let lastX = 0, lastY = 0;
+
+    stage.addEventListener("pointerdown", (e)=>{
+      dragging = true;
+      dragButton = e.button;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      stage.classList.add("dragging");
+      stage.setPointerCapture(e.pointerId);
+    });
+
+    stage.addEventListener("pointerup", (e)=>{
+      dragging = false;
+      stage.classList.remove("dragging");
+      try{ stage.releasePointerCapture(e.pointerId); }catch(_){}
+    });
+
+    stage.addEventListener("pointermove", (e)=>{
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      if (dragButton === 2) {
+        const s = panScale();
+        const forward = new THREE.Vector3().subVectors(this.view.target, this.camera.position).normalize();
+        const right = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+        this.view.target.addScaledVector(right, -dx * s);
+        this.view.target.addScaledVector(up,   dy * s);
+        updateCamera();
+      } else {
+        this.view.yaw   -= dx * 0.006;
+        this.view.pitch -= dy * 0.006;
+        this.view.pitch = Math.max(this.view.minPitch, Math.min(this.view.maxPitch, this.view.pitch));
+        updateCamera();
+      }
+    });
+
+    stage.addEventListener("wheel", (e)=>{
+      e.preventDefault();
+      const factor = Math.exp(e.deltaY * 0.0012);
+      this.view.dist *= factor;
+      this.view.dist = Math.max(this.view.minDist, Math.min(this.view.maxDist, this.view.dist));
+      updateCamera();
+    }, { passive:false });
+
     updateCamera();
-  }, { passive:false });
+  }
 
-  // =========================================================
-  // Global settings
-  // =========================================================
-  const globalState = {
-    radius: 3.0,
-    height: 4.0,
-  };
+  resize(){
+    const w = this.stage.clientWidth;
+    const h = this.stage.clientHeight;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.updateCamera();
+  }
 
-  function hexToThreeColor(hex){
+  render(){
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  resetViewToFit(R,H){
+    const bound = Math.sqrt(R*R + (H*0.5)*(H*0.5));
+    this.view.dist = Math.max(3, bound * 3.0);
+    this.view.target.set(0,0,0);
+    this.view.yaw = 0.9;
+    this.view.pitch = 0.55;
+    this.updateCamera();
+  }
+
+  hexToThreeColor(hex){
     try{ return new THREE.Color(hex); }catch(_){ return new THREE.Color(0xffffff); }
   }
 
-  function rebuildGuides(){
-    while (guideGroup.children.length){
-      const obj = guideGroup.children.pop();
+  rebuildGuides({ radius:R, height:H }){
+    while (this.guideGroup.children.length){
+      const obj = this.guideGroup.children.pop();
       obj.geometry?.dispose?.();
       obj.material?.dispose?.();
     }
 
-    const R = globalState.radius;
-    const H = globalState.height;
-
     const seg = 180;
-    const circleColor = hexToThreeColor(themeManager.state.circleHex);
-    const isLight = (themeManager.state.theme === 'light');
+    const circleColor = this.hexToThreeColor(this.themeManager.state.circleHex);
+    const isLight = (this.themeManager.state.theme === 'light');
 
     const mat = new THREE.LineBasicMaterial({
       color: circleColor,
@@ -786,51 +763,86 @@ function startApp({ threeUrl }){
       opacity: 0.55
     });
 
-    function ring(z){
+    const ring = (z) => {
       const pts = [];
       for (let k=0;k<=seg;k++){
-        const a = TAU * (k/seg);
+        const a = MathUtil.TAU * (k/seg);
         pts.push(R*Math.cos(a), R*Math.sin(a), z);
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
       return new THREE.Line(geo, mat.clone());
-    }
+    };
 
-    guideGroup.add(ring(+H/2));
-    guideGroup.add(ring(-H/2));
+    this.guideGroup.add(ring(+H/2));
+    this.guideGroup.add(ring(-H/2));
 
-    scene.background = new THREE.Color(isLight ? "#ffffff" : "#0b0f17");
-    resetViewToFit(R, H);
+    this.scene.background = new THREE.Color(isLight ? "#ffffff" : "#0b0f17");
+    this.resetViewToFit(R, H);
   }
 
-  // =========================================================
-  // Row model
-  // =========================================================
-  const DEFAULT_ANIM_TIME = 8.0;
-  const DEFAULT_START = 0;
-  const DEFAULT_LABEL_SIZE = 100; // ★ 250 → 100
+  // Lineクリック検出（rowLineObjects は THREE.Line の配列）
+  pickLine(clientX, clientY, rowLineObjects){
+    const rect = this.stage.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    this.pointerNDC.set(x,y);
 
-  const palette = [
-    "#60a5fa", "#f472b6", "#34d399", "#f59e0b", "#a78bfa",
-    "#22d3ee", "#fb7185", "#84cc16", "#e879f9", "#f87171",
-  ];
+    this.raycaster.setFromCamera(this.pointerNDC, this.camera);
+    const hits = this.raycaster.intersectObjects(rowLineObjects, false);
+    if (!hits.length) return null;
+    return hits[0].object; // THREE.Line
+  }
+}
 
-  class RowModel{
-    constructor(initial){
-      Object.assign(this, initial);
-      this.group = null;
-      this.pathLine = null;
-      this.pathBasePos = null;
-      this.pathEdges = 0;
+/* =========================================================
+   Row model + builder
+========================================================= */
+class RowModel{
+  constructor(initial){
+    Object.assign(this, initial);
 
-      this.animPlaying = false;
-      this.animProgressEdges = 0.0;
-      this.animSpeedEdgesPerSec = 0.0;
-    }
+    this.group = null;
+    this.pathLine = null;
+    this.pathBasePos = null;
+    this.pathEdges = 0;
+
+    this.animPlaying = false;
+    this.animProgressEdges = 0.0;
+    this.animSpeedEdgesPerSec = 0.0;
+  }
+}
+
+class RowBuilder{
+  constructor({ threeScene, themeManager, globalState }){
+    this.three = threeScene;
+    this.themeManager = themeManager;
+    this.globalState = globalState;
   }
 
-  function makeLabelSprite(text, fontPx, fill, stroke){
+  disposeObject(obj){
+    obj.traverse((x)=>{
+      if (x.geometry) x.geometry.dispose();
+      if (x.material){
+        if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
+        else x.material.dispose();
+      }
+      // label texture
+      if (x.userData?._labelTexture) x.userData._labelTexture.dispose?.();
+    });
+  }
+
+  clearRow3D(r){
+    if (!r.group) return;
+    this.three.root3D.remove(r.group);
+    this.disposeObject(r.group);
+    r.group = null;
+    r.pathLine = null;
+    r.pathBasePos = null;
+    r.pathEdges = 0;
+  }
+
+  makeLabelSprite(text, fontPx, fill, stroke){
     const size = 256;
     const canvas = document.createElement("canvas");
     canvas.width = size; canvas.height = size;
@@ -865,36 +877,7 @@ function startApp({ threeUrl }){
     return spr;
   }
 
-  function getLabelPalette(){
-    if (themeManager.state.theme === 'light'){
-      return { fill: "rgba(17,24,39,0.96)", stroke: "rgba(255,255,255,0.92)" };
-    }
-    return { fill: "rgba(255,255,255,0.92)", stroke: "rgba(0,0,0,0.78)" };
-  }
-
-  function disposeObject(obj){
-    obj.traverse((x)=>{
-      if (x.geometry) x.geometry.dispose();
-      if (x.material){
-        if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
-        else x.material.dispose();
-      }
-      if (x.userData?._labelTexture) x.userData._labelTexture.dispose?.();
-      if (x.material?.map) x.material.map.dispose?.();
-    });
-  }
-
-  function clearRow3D(r){
-    if (!r.group) return;
-    root3D.remove(r.group);
-    disposeObject(r.group);
-    r.group = null;
-    r.pathLine = null;
-    r.pathBasePos = null;
-    r.pathEdges = 0;
-  }
-
-  function setRowLineProgress(r, pEdges){
+  setRowLineProgress(r, pEdges){
     if (!r.pathLine || !r.pathBasePos) return;
     const edges = r.pathEdges;
     const geo = r.pathLine.geometry;
@@ -940,29 +923,24 @@ function startApp({ threeUrl }){
     }
   }
 
-  function buildRow3D(r){
-    clearRow3D(r);
+  buildRow3D(r){
+    this.clearRow3D(r);
     if (!r.visible) return;
 
-    const N = r.N;
-    const M = r.M;
+    const N = r.N, M = r.M;
+    if (!Number.isInteger(N) || !Number.isInteger(M) || N < 3 || M < 1) return;
 
-    if (!Number.isInteger(N) || !Number.isInteger(M) || N < 3 || M < 1){
-      return;
-    }
+    const R = this.globalState.radius;
+    const H = this.globalState.height;
 
-    const R = globalState.radius;
-    const H = globalState.height;
-
-    const info = buildCycle3D(N, M, r.start);
+    const info = CycleBuilder.buildCycle3D(N, M, r.start);
     if (!info.valid || info.edges <= 0) return;
 
     const group = new THREE.Group();
     r.group = group;
-    root3D.add(group);
+    this.three.root3D.add(group);
 
-    const zTop = +H/2;
-    const zBot = -H/2;
+    const zTop = +H/2, zBot = -H/2;
 
     if (r.showPoints){
       const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
@@ -973,7 +951,7 @@ function startApp({ threeUrl }){
       });
 
       for (let i=0;i<N;i++){
-        const ang = TAU*(i/N) - Math.PI/2;
+        const ang = MathUtil.TAU*(i/N) - Math.PI/2;
         const x = R*Math.cos(ang);
         const y = R*Math.sin(ang);
 
@@ -988,24 +966,24 @@ function startApp({ threeUrl }){
     }
 
     if (r.showLabels){
-      const { fill, stroke } = getLabelPalette();
-      const fontPx = Math.max(8, Math.floor(Number(r.labelSizePx) || DEFAULT_LABEL_SIZE));
+      const { fill, stroke } = this.themeManager.getLabelPalette();
+      const fontPx = Math.max(8, Math.floor(Number(r.labelSizePx) || 100));
       const worldSize = Math.max(0.16, R * 0.16);
       const off = Math.max(0.22, R * 0.12);
 
       for (let i=0;i<N;i++){
-        const ang = TAU*(i/N) - Math.PI/2;
+        const ang = MathUtil.TAU*(i/N) - Math.PI/2;
         const x = R*Math.cos(ang);
         const y = R*Math.sin(ang);
         const len = Math.hypot(x,y) || 1;
         const nx = x/len, ny=y/len;
 
-        const sprT = makeLabelSprite(String(i), fontPx, fill, stroke);
+        const sprT = this.makeLabelSprite(String(i), fontPx, fill, stroke);
         sprT.position.set(x + nx*off, y + ny*off, zTop);
         sprT.scale.set(worldSize, worldSize, 1);
         group.add(sprT);
 
-        const sprB = makeLabelSprite(String(i), fontPx, fill, stroke);
+        const sprB = this.makeLabelSprite(String(i), fontPx, fill, stroke);
         sprB.position.set(x + nx*off, y + ny*off, zBot);
         sprB.scale.set(worldSize, worldSize, 1);
         group.add(sprB);
@@ -1014,7 +992,7 @@ function startApp({ threeUrl }){
 
     const pts = [];
     for (const nd of info.nodes){
-      const ang = TAU*(nd.idx/N) - Math.PI/2;
+      const ang = MathUtil.TAU*(nd.idx/N) - Math.PI/2;
       const x = R*Math.cos(ang);
       const y = R*Math.sin(ang);
       const z = (nd.side === "T") ? zTop : zBot;
@@ -1037,607 +1015,713 @@ function startApp({ threeUrl }){
     });
 
     const line = new THREE.Line(geo, mat);
+    line.userData.rowId = r.id; // クリック判定用
     r.pathLine = line;
     group.add(line);
 
-    if (!r.animPlaying){
-      setRowLineProgress(r, r.pathEdges);
+    if (!r.animPlaying) this.setRowLineProgress(r, r.pathEdges);
+    else this.setRowLineProgress(r, 0);
+  }
+}
+
+/* =========================================================
+   App main
+========================================================= */
+class StringArt3DApp{
+  constructor({ threeUrl }){
+    // DOM
+    this.stage = document.getElementById("stage");
+    this.hudText = document.getElementById("hudText");
+    this.hudNM = document.getElementById("hudNM");
+    this.rowsEl = document.getElementById("rows");
+    this.globalInfoEl = document.getElementById("globalInfo");
+
+    this.btnAdd = document.getElementById("addRow");
+    this.btnReset = document.getElementById("resetAll");
+    this.btnToggleAll = document.getElementById("toggleAll");
+    this.btnSave = document.getElementById("saveAll");
+    this.btnOpenGlobal = document.getElementById("openGlobal");
+
+    // Row modal
+    this.rowModalOverlay = document.getElementById('rowModalOverlay');
+    this.rowModalTitle = document.getElementById('rowModalTitle');
+    this.rowModalClose = document.getElementById('rowModalClose');
+    this.optVisible = document.getElementById('optVisible');
+    this.optShowPoints = document.getElementById('optShowPoints');
+    this.optShowLabels = document.getElementById('optShowLabels');
+    this.optLabelSize = document.getElementById('optLabelSize');
+    this.optLineColor = document.getElementById('optLineColor');
+    this.optPointColor = document.getElementById('optPointColor');
+    this.optAnimTime = document.getElementById('optAnimTime');
+    this.optStart = document.getElementById('optStart');
+
+    // Global modal
+    this.globalModalOverlay = document.getElementById('globalModalOverlay');
+    this.globalModalClose = document.getElementById('globalModalClose');
+    this.optTheme = document.getElementById('optTheme');
+    this.optCircleColor = document.getElementById('optCircleColor');
+    this.optRadius = document.getElementById('optRadius');
+    this.optHeight = document.getElementById('optHeight');
+
+    // State
+    this.threeUrl = threeUrl;
+    this.themeManager = new ThemeManager();
+    this.globalState = { radius: 3.0, height: 4.0 };
+
+    this.three = new ThreeScene({ stage: this.stage, themeManager: this.themeManager });
+    this.rowBuilder = new RowBuilder({ threeScene: this.three, themeManager: this.themeManager, globalState: this.globalState });
+
+    this.DEFAULT_ANIM_TIME = 8.0;
+    this.DEFAULT_START = 0;
+    this.DEFAULT_LABEL_SIZE = 100;
+
+    this.palette = [
+      "#60a5fa", "#f472b6", "#34d399", "#f59e0b", "#a78bfa",
+      "#22d3ee", "#fb7185", "#84cc16", "#e879f9", "#f87171",
+    ];
+
+    this.nextId = 1;
+    this.rows = [];
+
+    this.globalPlaying = false;
+
+    // animation loop state
+    this.rafAnim = null;
+    this.lastT = null;
+
+    // batched rebuild
+    this.rafDraw = null;
+    this.dirtyAll = false;
+    this.dirtyRowIds = new Set();
+
+    // modal binding
+    this.modalRow = null;
+    this.modalRowCard = null;
+  }
+
+  boot(){
+    this.themeManager.applyTheme();
+    this.three.rebuildGuides(this.globalState);
+    this._installEvents();
+
+    this.addRow({
+      N:null, M:null,
+      start:this.DEFAULT_START,
+      animTimeSec:this.DEFAULT_ANIM_TIME,
+      labelSizePx:this.DEFAULT_LABEL_SIZE
+    });
+
+    this.hudText.textContent = "N/M を入力して描画します。";
+    this.hidePickedNM();
+    this.requestDrawAll();
+    this.three.resize();
+    this.three.render();
+  }
+
+  /* ---------- HUD NM ---------- */
+  showPickedNM(N, M){
+    this.hudNM.textContent = `N=${N}, M=${M}`;
+    this.hudNM.style.display = 'inline-block';
+  }
+  hidePickedNM(){
+    this.hudNM.textContent = '';
+    this.hudNM.style.display = 'none';
+  }
+
+  /* ---------- math/info ---------- */
+  getCycleInfo(r){
+    const N=r.N, M=r.M;
+    if (!Number.isInteger(N) || !Number.isInteger(M) || N<3 || M<1){
+      return { valid:false, edges:0, step:0, d:0, L:0, startN:0 };
+    }
+    const step = MathUtil.mod(M, N);
+    const startN = MathUtil.mod(r.start, N);
+    const d = MathUtil.gcd(N, step);
+    const L = (step===0) ? 0 : (N/d);
+    const cyc = CycleBuilder.buildCycle3D(N, M, r.start);
+    return { valid:cyc.valid, edges:cyc.edges, step, d, L, startN };
+  }
+
+  anyAnimationPlaying(){
+    return this.rows.some(r => r.animPlaying);
+  }
+
+  /* ---------- drawing scheduler (batched) ---------- */
+  requestDrawAll(){
+    this.dirtyAll = true;
+    this.dirtyRowIds.clear();
+    this._requestDraw();
+  }
+  requestDrawRow(rowId){
+    if (!this.dirtyAll) this.dirtyRowIds.add(rowId);
+    this._requestDraw();
+  }
+  _requestDraw(){
+    if (this.rafDraw) return;
+    this.rafDraw = requestAnimationFrame(()=>{
+      this.rafDraw = null;
+      this._applyDraw();
+    });
+  }
+  _applyDraw(){
+    this.three.resize();
+
+    if (this.dirtyAll){
+      for (const r of this.rows) this.rowBuilder.buildRow3D(r);
     } else {
-      setRowLineProgress(r, 0);
+      for (const id of this.dirtyRowIds){
+        const r = this.rows.find(x=>x.id===id);
+        if (r) this.rowBuilder.buildRow3D(r);
+      }
+    }
+
+    this.dirtyAll = false;
+    this.dirtyRowIds.clear();
+
+    this.updateGlobalInfo();
+    this.three.render();
+
+    // アニメが必要なら回し始める
+    if (this.anyAnimationPlaying() && !this.rafAnim){
+      this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
     }
   }
 
-  // =========================================================
-  // App
-  // =========================================================
-  class App{
-    constructor(){
-      this.nextId = 1;
-      this.rows = [];
-      this.rafId = null;
+  /* ---------- animation tick ---------- */
+  _tick(t){
+    if (this.lastT == null) this.lastT = t;
+    const dt = (t - this.lastT) / 1000;
+    this.lastT = t;
+
+    for (const r of this.rows){
+      if (!r.animPlaying) continue;
+
+      const info = this.getCycleInfo(r);
+      if (!info.valid || info.edges <= 0){
+        r.animPlaying = false;
+        continue;
+      }
+
+      r.animProgressEdges += r.animSpeedEdgesPerSec * dt;
+
+      if (r.animProgressEdges >= info.edges){
+        r.animProgressEdges = info.edges;
+        r.animPlaying = false;
+
+        const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
+        if (card && card._setAnimIcon) card._setAnimIcon();
+      }
+
+      this.rowBuilder.setRowLineProgress(r, r.animProgressEdges);
+    }
+
+    this.three.render();
+    this.updateGlobalInfo();
+
+    if (this.anyAnimationPlaying()){
+      this.rafAnim = requestAnimationFrame((tt)=>this._tick(tt));
+    } else {
+      this.rafAnim = null;
       this.lastT = null;
-
-      this.globalPlaying = false; // ★ added
-
-      this.modalRow = null;
-      this.modalRowCard = null;
+      if (this.globalPlaying){
+        this.globalPlaying = false;
+        this.btnToggleAll.textContent = "▶ 全アニメ再生";
+      }
     }
+  }
 
-    newRowDefaults(){
-      const idx = this.rows.length;
-      const base = palette[idx % palette.length];
+  /* ---------- UI ---------- */
+  rowTitle(r){
+    const n = (r.N == null ? "" : r.N);
+    const m = (r.M == null ? "" : r.M);
+    return `#${r.id}  N=${n}, M=${m}`;
+  }
 
-      return new RowModel({
-        id: this.nextId++,
-        N: null,
-        M: null,
-        start: DEFAULT_START,
-        animTimeSec: DEFAULT_ANIM_TIME,
-        visible: true,
-        showPoints: true,
-        showLabels: false,
-        labelSizePx: DEFAULT_LABEL_SIZE,
-        lineColor: base,
-        pointColor: base,
-      });
-    }
+  updateGlobalInfo(){
+    const total = this.rows.length;
+    const playing = this.rows.filter(r => r.animPlaying).length;
+    this.globalInfoEl.innerHTML = `
+      <b>表示</b>: ${total} / <b>アニメ</b>: ${playing}<br/>
+      <b>R</b>: ${this.globalState.radius.toFixed(1)} , <b>H</b>: ${this.globalState.height.toFixed(1)}<br/>
+      <span style="opacity:.85">THREE: ${this.threeUrl}</span>
+    `;
+  }
 
-    getCycleInfo(r){
+  newRowDefaults(){
+    const idx = this.rows.length;
+    const base = this.palette[idx % this.palette.length];
+
+    return new RowModel({
+      id: this.nextId++,
+      N: null,
+      M: null,
+      start: this.DEFAULT_START,
+      animTimeSec: this.DEFAULT_ANIM_TIME,
+      visible: true,
+      showPoints: true,
+      showLabels: false,
+      labelSizePx: this.DEFAULT_LABEL_SIZE,
+      lineColor: base,
+      pointColor: base,
+    });
+  }
+
+  createRowUI(r){
+    const app = this;
+
+    const card = document.createElement('div');
+    card.className = 'rowCard';
+    card.dataset.rowId = String(r.id);
+
+    const fieldN = document.createElement('div');
+    fieldN.className = 'field';
+    fieldN.innerHTML = `<div class="label">N</div>`;
+    const inN = document.createElement('input');
+    inN.type = 'number';
+    inN.min = '1';
+    inN.step = '1';
+    inN.placeholder = '（未入力）';
+    inN.value = (r.N == null ? '' : String(r.N));
+    fieldN.appendChild(inN);
+
+    const fieldM = document.createElement('div');
+    fieldM.className = 'field';
+    fieldM.innerHTML = `<div class="label">M</div>`;
+    const inM = document.createElement('input');
+    inM.type = 'number';
+    inM.min = '1';
+    inM.step = '1';
+    inM.placeholder = '（未入力）';
+    inM.value = (r.M == null ? '' : String(r.M));
+    fieldM.appendChild(inM);
+
+    const btnAnim = document.createElement('button');
+    btnAnim.className = 'iconBtn';
+    btnAnim.title = 'この行のアニメ 再生/停止';
+    btnAnim.textContent = '▶';
+
+    const btnGear = document.createElement('button');
+    btnGear.className = 'iconBtn';
+    btnGear.title = '設定';
+    btnGear.textContent = '⚙';
+
+    const btnDel = document.createElement('button');
+    btnDel.className = 'iconBtn';
+    btnDel.title = '削除';
+    btnDel.textContent = '🗑';
+
+    const meta = document.createElement('div');
+    meta.className = 'rowMeta';
+
+    const updateMeta = ()=>{
       const N=r.N, M=r.M;
-      if (!Number.isInteger(N) || !Number.isInteger(M) || N<3 || M<1){
-        return { valid:false, edges:0, step:0, d:0, L:0, startN:0 };
+      if (!Number.isInteger(N) || !Number.isInteger(M)){
+        meta.textContent = `未入力`;
+        return;
       }
-      const step = mod(M, N);
-      const startN = mod(r.start, N);
-      const d = gcd(N, step);
-      const L = (step===0) ? 0 : (N/d);
-      const cyc = buildCycle3D(N, M, r.start);
-      return { valid:cyc.valid, edges:cyc.edges, step, d, L, startN };
-    }
+      if (N < 3){
+        meta.textContent = `N は 3 以上`;
+        return;
+      }
+      if (M < 1){
+        meta.textContent = `M は 1 以上`;
+        return;
+      }
+      const info = app.getCycleInfo(r);
+      const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
+      meta.innerHTML = `start=${info.startN}, step=${info.step}, edges=${info.edges}, time=${r.animTimeSec.toFixed(1)}s ${sw}`;
+    };
 
-    anyAnimationPlaying(){
-      return this.rows.some(r => r.animPlaying);
-    }
+    const resetAnim = ()=>{
+      r.animPlaying = false;
+      r.animProgressEdges = 0.0;
+      card._setAnimIcon();
+    };
 
-    resize(){
-      const w = stage.clientWidth;
-      const h = stage.clientHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      updateCamera();
-    }
+    const stopGlobalIfNeeded = ()=>{
+      if (app.globalPlaying){
+        app.globalPlaying = false;
+        app.btnToggleAll.textContent = "▶ 全アニメ再生";
+      }
+    };
 
-    drawAll(){
-      this.resize();
-      renderer.render(scene, camera);
-    }
+    const applyN = ()=>{
+      const raw = inN.value.trim();
+      if (raw === ''){
+        r.N = null;
+        resetAnim();
+        stopGlobalIfNeeded();
+        card._updateMeta();
+        app.requestDrawRow(r.id);
+        return;
+      }
+      const v = Math.floor(Number(raw));
+      r.N = Number.isFinite(v) ? v : null;
+      if (r.N != null && r.N < 1) r.N = 1;
+      inN.value = (r.N == null ? '' : String(r.N));
+      resetAnim();
+      stopGlobalIfNeeded();
+      card._updateMeta();
+      app.requestDrawRow(r.id);
+    };
 
-    scheduleDraw(){
-      for (const r of this.rows){
-        buildRow3D(r);
+    const applyM = ()=>{
+      const raw = inM.value.trim();
+      if (raw === ''){
+        r.M = null;
+        resetAnim();
+        stopGlobalIfNeeded();
+        card._updateMeta();
+        app.requestDrawRow(r.id);
+        return;
+      }
+      const v = Math.floor(Number(raw));
+      r.M = Number.isFinite(v) ? v : null;
+      if (r.M != null && r.M < 1) r.M = 1;
+      inM.value = (r.M == null ? '' : String(r.M));
+      resetAnim();
+      stopGlobalIfNeeded();
+      card._updateMeta();
+      app.requestDrawRow(r.id);
+    };
+
+    // 入力中も即時反映するが、描画は rAF でまとめられる（負荷過重を抑える）
+    inN.addEventListener('input', applyN);
+    inM.addEventListener('input', applyM);
+    inN.addEventListener('change', applyN);
+    inM.addEventListener('change', applyM);
+
+    btnAnim.addEventListener('click', ()=>{
+      const info = app.getCycleInfo(r);
+      const edges = info.edges;
+
+      if (!info.valid || edges <= 0){
+        r.animPlaying = false;
+        r.animProgressEdges = 0.0;
+        card._setAnimIcon();
+        app.requestDrawRow(r.id);
+        return;
       }
 
-      this.updateGlobalInfo();
-      this.drawAll();
+      const T = Math.max(0.2, Number(r.animTimeSec) || app.DEFAULT_ANIM_TIME);
+      r.animSpeedEdgesPerSec = edges / T;
 
-      if (this.anyAnimationPlaying() && !this.rafId){
-        this.rafId = requestAnimationFrame((t)=>this.tick(t));
+      r.animPlaying = !r.animPlaying;
+      if (r.animPlaying) r.animProgressEdges = 0.0;
+      card._setAnimIcon();
+
+      stopGlobalIfNeeded();
+
+      app.requestDrawRow(r.id);
+      // アニメ開始なら tick が回り始める
+      if (r.animPlaying && !app.rafAnim){
+        app.rafAnim = requestAnimationFrame((t)=>app._tick(t));
       }
-      if (!this.anyAnimationPlaying() && this.rafId){
-        cancelAnimationFrame(this.rafId);
-        this.rafId = null;
-        this.lastT = null;
+    });
+
+    btnGear.addEventListener('click', ()=> app.openRowSettings(r, card));
+
+    btnDel.addEventListener('click', ()=>{
+      stopGlobalIfNeeded();
+      app.hidePickedNM(); // 表示中のNMが消えるように
+      const i = app.rows.findIndex(x => x.id === r.id);
+      if (i >= 0){
+        app.rowBuilder.clearRow3D(app.rows[i]);
+        app.rows.splice(i,1);
       }
+      card.remove();
+      app.requestDrawAll();
+    });
+
+    card._updateMeta = updateMeta;
+    card._setAnimIcon = ()=> { btnAnim.textContent = r.animPlaying ? '⏸' : '▶'; };
+
+    card.appendChild(fieldN);
+    card.appendChild(fieldM);
+    card.appendChild(btnAnim);
+    card.appendChild(btnGear);
+    card.appendChild(btnDel);
+    card.appendChild(meta);
+
+    updateMeta();
+    card._setAnimIcon();
+    return card;
+  }
+
+  addRow(initial){
+    const r = Object.assign(this.newRowDefaults(), initial || {});
+    const idx = this.rows.length;
+    const base = this.palette[idx % this.palette.length];
+    if (!initial || !initial.lineColor) r.lineColor = base;
+    if (!initial || !initial.pointColor) r.pointColor = base;
+
+    const t = Number(r.animTimeSec);
+    r.animTimeSec = (Number.isFinite(t) && t >= 0.2) ? t : this.DEFAULT_ANIM_TIME;
+
+    const ls = Math.floor(Number(r.labelSizePx));
+    r.labelSizePx = (Number.isFinite(ls) && ls >= 8) ? ls : this.DEFAULT_LABEL_SIZE;
+
+    this.rows.push(r);
+    this.rowsEl.appendChild(this.createRowUI(r));
+    this.requestDrawRow(r.id);
+  }
+
+  /* ---------- Modals ---------- */
+  openRowSettings(r, card){
+    this.modalRow = r;
+    this.modalRowCard = card;
+
+    this.rowModalTitle.textContent = `設定 ${this.rowTitle(r)}`;
+
+    this.optVisible.checked = r.visible;
+    this.optShowPoints.checked = r.showPoints;
+    this.optShowLabels.checked = r.showLabels;
+
+    this.optLabelSize.value = String(r.labelSizePx);
+
+    this.optLineColor.value = r.lineColor;
+    this.optPointColor.value = r.pointColor;
+
+    this.optAnimTime.value = String(Number(r.animTimeSec).toFixed(1));
+    this.optStart.value = String(Number.isFinite(r.start) ? r.start : 0);
+
+    this.rowModalOverlay.style.display = 'flex';
+  }
+
+  closeRowSettings(){
+    this.rowModalOverlay.style.display = 'none';
+    this.modalRow = null;
+    this.modalRowCard = null;
+  }
+
+  syncRowModalToRow(){
+    if (!this.modalRow) return;
+    const r = this.modalRow;
+
+    r.visible = this.optVisible.checked;
+    r.showPoints = this.optShowPoints.checked;
+    r.showLabels = this.optShowLabels.checked;
+
+    {
+      const v = Math.floor(Number(this.optLabelSize.value));
+      r.labelSizePx = (Number.isFinite(v) && v >= 8) ? v : this.DEFAULT_LABEL_SIZE;
+      this.optLabelSize.value = String(r.labelSizePx);
     }
 
-    tick(t){
-      if (this.lastT == null) this.lastT = t;
-      const dt = (t - this.lastT) / 1000;
-      this.lastT = t;
+    r.lineColor = this.optLineColor.value;
+    r.pointColor = this.optPointColor.value;
 
-      for (const r of this.rows){
-        if (!r.animPlaying) continue;
+    {
+      const v = Number(this.optAnimTime.value);
+      r.animTimeSec = (Number.isFinite(v) && v >= 0.2) ? v : this.DEFAULT_ANIM_TIME;
+      this.optAnimTime.value = String(r.animTimeSec.toFixed(1));
+    }
 
-        const info = this.getCycleInfo(r);
-        if (!info.valid || info.edges <= 0){
-          r.animPlaying = false;
-          continue;
-        }
+    {
+      const v = Math.floor(Number(this.optStart.value));
+      r.start = Number.isFinite(v) ? v : 0;
+      this.optStart.value = String(r.start);
+    }
 
-        r.animProgressEdges += r.animSpeedEdgesPerSec * dt;
+    r.animPlaying = false;
+    r.animProgressEdges = 0.0;
 
-        if (r.animProgressEdges >= info.edges){
-          r.animProgressEdges = info.edges;
-          r.animPlaying = false;
+    if (this.globalPlaying){
+      this.globalPlaying = false;
+      this.btnToggleAll.textContent = "▶ 全アニメ再生";
+    }
 
-          const card = rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
+    if (this.modalRowCard && this.modalRowCard._updateMeta) this.modalRowCard._updateMeta();
+    if (this.modalRowCard && this.modalRowCard._setAnimIcon) this.modalRowCard._setAnimIcon();
+
+    this.hidePickedNM(); // 表示は状況変化で一旦消す
+    this.requestDrawRow(r.id);
+  }
+
+  openGlobalSettings(){
+    this.optCircleColor.value = this.themeManager.state.circleHex;
+    this.optTheme.value = this.themeManager.state.theme;
+    this.optRadius.value = String(this.globalState.radius.toFixed(1));
+    this.optHeight.value = String(this.globalState.height.toFixed(1));
+    this.globalModalOverlay.style.display = 'flex';
+  }
+
+  closeGlobalSettings(){
+    this.globalModalOverlay.style.display = 'none';
+  }
+
+  syncGlobalModalToState(){
+    this.themeManager.state.theme = this.optTheme.value;
+    this.themeManager.state.circleHex = this.optCircleColor.value;
+
+    const r = Number(this.optRadius.value);
+    this.globalState.radius = (Number.isFinite(r) && r >= 0.1) ? r : 3.0;
+
+    const h = Number(this.optHeight.value);
+    this.globalState.height = (Number.isFinite(h) && h >= 0.1) ? h : 4.0;
+
+    if (this.globalPlaying){
+      this.globalPlaying = false;
+      this.btnToggleAll.textContent = "▶ 全アニメ再生";
+    }
+
+    this.themeManager.applyTheme();
+    this.three.rebuildGuides(this.globalState);
+    this.hidePickedNM();
+    this.requestDrawAll();
+  }
+
+  /* ---------- Global play ---------- */
+  prepareSpeedsForAll(){
+    const validRows = this.rows.filter(r=>{
+      const info = this.getCycleInfo(r);
+      return info.valid && info.edges > 0;
+    });
+    const times = validRows.map(r => Math.max(0.2, Number(r.animTimeSec) || this.DEFAULT_ANIM_TIME));
+    const Tglobal = times.length ? Math.max(...times) : this.DEFAULT_ANIM_TIME;
+
+    for (const r of this.rows){
+      const info = this.getCycleInfo(r);
+      r.animProgressEdges = 0.0;
+      r.animSpeedEdgesPerSec = (info.valid && info.edges > 0) ? (info.edges / Tglobal) : 0.0;
+    }
+  }
+
+  /* ---------- Events ---------- */
+  _installEvents(){
+    // row modal
+    this.rowModalClose.addEventListener('click', ()=> this.closeRowSettings());
+    this.rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.rowModalOverlay) this.closeRowSettings(); });
+
+    [
+      this.optVisible, this.optShowPoints, this.optShowLabels, this.optLabelSize,
+      this.optLineColor, this.optPointColor, this.optAnimTime, this.optStart
+    ].forEach(el=>{
+      el.addEventListener('input', ()=> this.syncRowModalToRow());
+      el.addEventListener('change', ()=> this.syncRowModalToRow());
+    });
+
+    // global modal
+    this.globalModalClose.addEventListener('click', ()=> this.closeGlobalSettings());
+    this.globalModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.globalModalOverlay) this.closeGlobalSettings(); });
+
+    this.optTheme.addEventListener('change', ()=> this.syncGlobalModalToState());
+    this.optCircleColor.addEventListener('input', ()=> this.syncGlobalModalToState());
+    this.optRadius.addEventListener('input', ()=> this.syncGlobalModalToState());
+    this.optHeight.addEventListener('input', ()=> this.syncGlobalModalToState());
+
+    // buttons
+    this.btnAdd.addEventListener('click', ()=> this.addRow());
+    this.btnOpenGlobal.addEventListener('click', ()=> this.openGlobalSettings());
+
+    this.btnToggleAll.addEventListener("click", ()=>{
+      this.globalPlaying = !this.globalPlaying;
+
+      if (this.globalPlaying){
+        this.prepareSpeedsForAll();
+
+        for (const r of this.rows){
+          const info = this.getCycleInfo(r);
+          r.animPlaying = info.valid && info.edges > 0;
+          r.animProgressEdges = 0.0;
+
+          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
           if (card && card._setAnimIcon) card._setAnimIcon();
         }
 
-        setRowLineProgress(r, r.animProgressEdges);
-      }
-
-      this.drawAll();
-      this.updateGlobalInfo();
-
-      if (this.anyAnimationPlaying()){
-        this.rafId = requestAnimationFrame((tt)=>this.tick(tt));
+        this.btnToggleAll.textContent = "⏸ 全アニメ停止";
+        this.hidePickedNM();
+        this.requestDrawAll();
+        if (this.anyAnimationPlaying() && !this.rafAnim){
+          this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
+        }
       } else {
-        this.rafId = null;
-        this.lastT = null;
-
-        // ★ global button restore
-        if (this.globalPlaying){
-          this.globalPlaying = false;
-          btnToggleAll.textContent = "▶ 全アニメ再生";
-        }
-      }
-    }
-
-    updateGlobalInfo(){
-      const total = this.rows.length;
-      const playing = this.rows.filter(r => r.animPlaying).length;
-      globalInfoEl.innerHTML = `
-        <b>表示数</b>: ${total}<br/>
-        <b>アニメ中</b>: ${playing} / ${total}<br/>
-        <b>R</b>: ${globalState.radius.toFixed(1)} , <b>H</b>: ${globalState.height.toFixed(1)}<br/>
-        <span style="opacity:.85">THREE: ${threeUrl}</span>
-      `;
-    }
-
-    rowTitle(r){
-      const n = (r.N == null ? "" : r.N);
-      const m = (r.M == null ? "" : r.M);
-      return `#${r.id}  N=${n}, M=${m}`;
-    }
-
-    createRowUI(r){
-      const app = this;
-
-      const card = document.createElement('div');
-      card.className = 'rowCard';
-      card.dataset.rowId = String(r.id);
-
-      const fieldN = document.createElement('div');
-      fieldN.className = 'field';
-      fieldN.innerHTML = `<div class="label">N</div>`;
-      const inN = document.createElement('input');
-      inN.type = 'number';
-      inN.min = '1';
-      inN.step = '1';
-      inN.placeholder = '（未入力）';
-      inN.value = (r.N == null ? '' : String(r.N));
-      fieldN.appendChild(inN);
-
-      const fieldM = document.createElement('div');
-      fieldM.className = 'field';
-      fieldM.innerHTML = `<div class="label">M</div>`;
-      const inM = document.createElement('input');
-      inM.type = 'number';
-      inM.min = '1';
-      inM.step = '1';
-      inM.placeholder = '（未入力）';
-      inM.value = (r.M == null ? '' : String(r.M));
-      fieldM.appendChild(inM);
-
-      const btnAnim = document.createElement('button');
-      btnAnim.className = 'iconBtn';
-      btnAnim.title = 'この行のアニメ 再生/停止';
-      btnAnim.textContent = '▶';
-
-      const btnGear = document.createElement('button');
-      btnGear.className = 'iconBtn';
-      btnGear.title = '設定';
-      btnGear.textContent = '⚙';
-
-      const btnDel = document.createElement('button');
-      btnDel.className = 'iconBtn';
-      btnDel.title = '削除';
-      btnDel.textContent = '🗑';
-
-      const meta = document.createElement('div');
-      meta.className = 'rowMeta';
-
-      function updateMeta(){
-        const N=r.N, M=r.M;
-        if (!Number.isInteger(N) || !Number.isInteger(M)){
-          meta.textContent = `未入力（N,Mを入れると描画します）`;
-          return;
-        }
-        if (N < 3){
-          meta.textContent = `注意: N=${N} は多角形になりません（N≥3推奨）`;
-          return;
-        }
-        if (M < 1){
-          meta.textContent = `注意: M は 1 以上`;
-          return;
-        }
-        const info = app.getCycleInfo(r);
-        const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
-        meta.innerHTML =
-          `start=${info.startN}, step(M)=${info.step}, gcd(N,M)=${info.d}, L=${info.L}, edges=${info.edges}, time=${r.animTimeSec.toFixed(1)}s ${sw}`;
-      }
-
-      function resetAnim(){
-        r.animPlaying = false;
-        r.animProgressEdges = 0.0;
-        card._setAnimIcon();
-      }
-
-      function stopGlobalIfNeeded(){
-        if (app.globalPlaying){
-          app.globalPlaying = false;
-          btnToggleAll.textContent = "▶ 全アニメ再生";
-        }
-      }
-
-      function applyN(){
-        const raw = inN.value.trim();
-        if (raw === ''){
-          r.N = null;
-          resetAnim();
-          stopGlobalIfNeeded();
-          card._updateMeta();
-          app.scheduleDraw();
-          return;
-        }
-        const v = Math.floor(Number(raw));
-        r.N = Number.isFinite(v) ? v : null;
-        if (r.N != null && r.N < 1) r.N = 1;
-        inN.value = (r.N == null ? '' : String(r.N));
-        resetAnim();
-        stopGlobalIfNeeded();
-        card._updateMeta();
-        app.scheduleDraw();
-      }
-
-      function applyM(){
-        const raw = inM.value.trim();
-        if (raw === ''){
-          r.M = null;
-          resetAnim();
-          stopGlobalIfNeeded();
-          card._updateMeta();
-          app.scheduleDraw();
-          return;
-        }
-        const v = Math.floor(Number(raw));
-        r.M = Number.isFinite(v) ? v : null;
-        if (r.M != null && r.M < 1) r.M = 1;
-        inM.value = (r.M == null ? '' : String(r.M));
-        resetAnim();
-        stopGlobalIfNeeded();
-        card._updateMeta();
-        app.scheduleDraw();
-      }
-
-      inN.addEventListener('input', applyN);
-      inM.addEventListener('input', applyM);
-      inN.addEventListener('change', applyN);
-      inM.addEventListener('change', applyM);
-
-      btnAnim.addEventListener('click', ()=>{
-        const info = app.getCycleInfo(r);
-        const edges = info.edges;
-
-        if (!info.valid || edges <= 0){
+        for (const r of this.rows){
           r.animPlaying = false;
-          r.animProgressEdges = 0.0;
-          card._setAnimIcon();
-          app.scheduleDraw();
-          return;
+          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
+          if (card && card._setAnimIcon) card._setAnimIcon();
         }
-
-        const T = Math.max(0.2, Number(r.animTimeSec) || DEFAULT_ANIM_TIME);
-        r.animSpeedEdgesPerSec = edges / T;
-
-        r.animPlaying = !r.animPlaying;
-        if (r.animPlaying) r.animProgressEdges = 0.0;
-        card._setAnimIcon();
-
-        stopGlobalIfNeeded();
-
-        buildRow3D(r);
-        setRowLineProgress(r, r.animPlaying ? 0 : edges);
-
-        app.scheduleDraw();
-      });
-
-      btnGear.addEventListener('click', ()=> app.openRowSettings(r, card));
-
-      btnDel.addEventListener('click', ()=>{
-        stopGlobalIfNeeded();
-        const i = app.rows.findIndex(x => x.id === r.id);
-        if (i >= 0){
-          clearRow3D(app.rows[i]);
-          app.rows.splice(i,1);
-        }
-        card.remove();
-        app.scheduleDraw();
-      });
-
-      card._updateMeta = updateMeta;
-      card._setAnimIcon = ()=> { btnAnim.textContent = r.animPlaying ? '⏸' : '▶'; };
-
-      card.appendChild(fieldN);
-      card.appendChild(fieldM);
-      card.appendChild(btnAnim);
-      card.appendChild(btnGear);
-      card.appendChild(btnDel);
-      card.appendChild(meta);
-
-      updateMeta();
-      card._setAnimIcon();
-      return card;
-    }
-
-    addRow(initial){
-      const r = Object.assign(this.newRowDefaults(), initial || {});
-      const idx = this.rows.length;
-      const base = palette[idx % palette.length];
-      if (!initial || !initial.lineColor) r.lineColor = base;
-      if (!initial || !initial.pointColor) r.pointColor = base;
-
-      const t = Number(r.animTimeSec);
-      r.animTimeSec = (Number.isFinite(t) && t >= 0.2) ? t : DEFAULT_ANIM_TIME;
-
-      const ls = Math.floor(Number(r.labelSizePx));
-      r.labelSizePx = (Number.isFinite(ls) && ls >= 8) ? ls : DEFAULT_LABEL_SIZE;
-
-      this.rows.push(r);
-      rowsEl.appendChild(this.createRowUI(r));
-      this.scheduleDraw();
-    }
-
-    openRowSettings(r, card){
-      this.modalRow = r;
-      this.modalRowCard = card;
-
-      rowModalTitle.textContent = `設定 ${this.rowTitle(r)}`;
-
-      optVisible.checked = r.visible;
-      optShowPoints.checked = r.showPoints;
-      optShowLabels.checked = r.showLabels;
-
-      optLabelSize.value = String(r.labelSizePx);
-
-      optLineColor.value = r.lineColor;
-      optPointColor.value = r.pointColor;
-
-      optAnimTime.value = String(Number(r.animTimeSec).toFixed(1));
-      optStart.value = String(Number.isFinite(r.start) ? r.start : 0);
-
-      rowModalOverlay.style.display = 'flex';
-    }
-
-    closeRowSettings(){
-      rowModalOverlay.style.display = 'none';
-      this.modalRow = null;
-      this.modalRowCard = null;
-    }
-
-    syncRowModalToRow(){
-      if (!this.modalRow) return;
-      const r = this.modalRow;
-
-      r.visible = optVisible.checked;
-      r.showPoints = optShowPoints.checked;
-      r.showLabels = optShowLabels.checked;
-
-      {
-        const v = Math.floor(Number(optLabelSize.value));
-        r.labelSizePx = (Number.isFinite(v) && v >= 8) ? v : DEFAULT_LABEL_SIZE;
-        optLabelSize.value = String(r.labelSizePx);
+        this.btnToggleAll.textContent = "▶ 全アニメ再生";
+        this.requestDrawAll();
       }
+    });
 
-      r.lineColor = optLineColor.value;
-      r.pointColor = optPointColor.value;
-
-      {
-        const v = Number(optAnimTime.value);
-        r.animTimeSec = (Number.isFinite(v) && v >= 0.2) ? v : DEFAULT_ANIM_TIME;
-        optAnimTime.value = String(r.animTimeSec.toFixed(1));
-      }
-
-      {
-        const v = Math.floor(Number(optStart.value));
-        r.start = Number.isFinite(v) ? v : 0;
-        optStart.value = String(r.start);
-      }
-
-      r.animPlaying = false;
-      r.animProgressEdges = 0.0;
-
-      if (this.globalPlaying){
-        this.globalPlaying = false;
-        btnToggleAll.textContent = "▶ 全アニメ再生";
-      }
-
-      if (this.modalRowCard && this.modalRowCard._updateMeta) this.modalRowCard._updateMeta();
-      if (this.modalRowCard && this.modalRowCard._setAnimIcon) this.modalRowCard._setAnimIcon();
-
-      buildRow3D(r);
-      this.scheduleDraw();
-    }
-
-    openGlobalSettings(){
-      optCircleColor.value = themeManager.state.circleHex;
-      optTheme.value = themeManager.state.theme;
-      optRadius.value = String(globalState.radius.toFixed(1));
-      optHeight.value = String(globalState.height.toFixed(1));
-      globalModalOverlay.style.display = 'flex';
-    }
-
-    closeGlobalSettings(){
-      globalModalOverlay.style.display = 'none';
-    }
-
-    syncGlobalModalToState(){
-      themeManager.state.theme = optTheme.value;
-      themeManager.state.circleHex = optCircleColor.value;
-
-      const r = Number(optRadius.value);
-      globalState.radius = (Number.isFinite(r) && r >= 0.1) ? r : 3.0;
-
-      const h = Number(optHeight.value);
-      globalState.height = (Number.isFinite(h) && h >= 0.1) ? h : 4.0;
-
-      if (this.globalPlaying){
-        this.globalPlaying = false;
-        btnToggleAll.textContent = "▶ 全アニメ再生";
-      }
-
-      themeManager.applyTheme(()=>{});
-      rebuildGuides();
-
-      for (const row of this.rows) buildRow3D(row);
-      this.scheduleDraw();
-    }
-
-    prepareSpeedsForAll(){
-      const validRows = this.rows.filter(r=>{
-        const info = this.getCycleInfo(r);
-        return info.valid && info.edges > 0;
-      });
-      const times = validRows.map(r => Math.max(0.2, Number(r.animTimeSec) || DEFAULT_ANIM_TIME));
-      const Tglobal = times.length ? Math.max(...times) : DEFAULT_ANIM_TIME;
-
+    this.btnSave.addEventListener('click', ()=>{
       for (const r of this.rows){
         const info = this.getCycleInfo(r);
-        r.animProgressEdges = 0.0;
-        r.animSpeedEdgesPerSec = (info.valid && info.edges > 0) ? (info.edges / Tglobal) : 0.0;
+        if (info.valid && info.edges > 0){
+          this.rowBuilder.setRowLineProgress(r, info.edges);
+        }
       }
-    }
+      this.three.render();
+
+      const url = this.three.renderer.domElement.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '3d-string-art.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+
+    this.btnReset.addEventListener('click', ()=> this.resetAll());
+
+    window.addEventListener('resize', ()=>{
+      this.requestDrawAll();
+    });
+
+    // クリック：線ならNM表示、空なら消す
+    this.stage.addEventListener('pointerdown', (e)=>{
+      // 左クリックのみ（右ドラッグのパンと衝突させない）
+      if (e.button !== 0) return;
+
+      const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
+      const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
+
+      if (!hitLine){
+        this.hidePickedNM();
+        return;
+      }
+
+      const rowId = hitLine.userData.rowId;
+      const row = this.rows.find(r=>r.id===rowId);
+      if (!row || !Number.isInteger(row.N) || !Number.isInteger(row.M)){
+        this.hidePickedNM();
+        return;
+      }
+      this.showPickedNM(row.N, row.M);
+    });
   }
 
-  const app = new App();
+  resetAll(){
+    this.globalPlaying = false;
+    this.btnToggleAll.textContent = "▶ 全アニメ再生";
+    this.hidePickedNM();
 
-  // =========================================================
-  // Events
-  // =========================================================
-  rowModalClose.addEventListener('click', ()=> app.closeRowSettings());
-  rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === rowModalOverlay) app.closeRowSettings(); });
-
-  [optVisible, optShowPoints, optShowLabels, optLabelSize, optLineColor, optPointColor, optAnimTime, optStart].forEach(el=>{
-    el.addEventListener('input', ()=> app.syncRowModalToRow());
-    el.addEventListener('change', ()=> app.syncRowModalToRow());
-  });
-
-  globalModalClose.addEventListener('click', ()=> app.closeGlobalSettings());
-  globalModalOverlay.addEventListener('click', (e)=>{ if (e.target === globalModalOverlay) app.closeGlobalSettings(); });
-
-  optTheme.addEventListener('change', ()=> app.syncGlobalModalToState());
-  optCircleColor.addEventListener('input', ()=> app.syncGlobalModalToState());
-  optRadius.addEventListener('input', ()=> app.syncGlobalModalToState());
-  optHeight.addEventListener('input', ()=> app.syncGlobalModalToState());
-
-  btnAdd.addEventListener('click', ()=> app.addRow());
-  btnOpenGlobal.addEventListener('click', ()=> app.openGlobalSettings());
-
-  // ★ 全アニメ再生/停止
-  btnToggleAll.addEventListener("click", ()=>{
-    app.globalPlaying = !app.globalPlaying;
-
-    if (app.globalPlaying){
-      app.prepareSpeedsForAll();
-
-      for (const r of app.rows){
-        const info = app.getCycleInfo(r);
-        r.animPlaying = info.valid && info.edges > 0;
-        r.animProgressEdges = 0.0;
-
-        const card = rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
-        if (card && card._setAnimIcon) card._setAnimIcon();
-
-        buildRow3D(r);
-        setRowLineProgress(r, r.animPlaying ? 0 : info.edges);
-      }
-
-      btnToggleAll.textContent = "⏸ 全アニメ停止";
-      app.scheduleDraw();
-    } else {
-      for (const r of app.rows){
-        r.animPlaying = false;
-        const card = rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
-        if (card && card._setAnimIcon) card._setAnimIcon();
-      }
-      btnToggleAll.textContent = "▶ 全アニメ再生";
-      app.scheduleDraw();
-    }
-  });
-
-  btnSave.addEventListener('click', ()=>{
-    for (const r of app.rows){
-      const info = app.getCycleInfo(r);
-      if (info.valid && info.edges > 0){
-        setRowLineProgress(r, info.edges);
-      }
-    }
-    renderer.render(scene, camera);
-
-    const url = renderer.domElement.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = '3d-string-art.png';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  });
-
-  btnReset.addEventListener('click', ()=>{
-    app.globalPlaying = false;
-    btnToggleAll.textContent = "▶ 全アニメ再生";
-
-    if (app.rafId){
-      cancelAnimationFrame(app.rafId);
-      app.rafId = null;
-      app.lastT = null;
+    if (this.rafAnim){
+      cancelAnimationFrame(this.rafAnim);
+      this.rafAnim = null;
+      this.lastT = null;
     }
 
-    for (const r of app.rows) clearRow3D(r);
-    app.rows.splice(0, app.rows.length);
-    rowsEl.innerHTML = '';
-    app.nextId = 1;
+    for (const r of this.rows) this.rowBuilder.clearRow3D(r);
+    this.rows.splice(0, this.rows.length);
+    this.rowsEl.innerHTML = '';
+    this.nextId = 1;
 
-    globalState.radius = 3.0;
-    globalState.height = 4.0;
-    themeManager.state.theme = 'dark';
-    themeManager.state.circleHex = '#b0b0b0';
+    this.globalState.radius = 3.0;
+    this.globalState.height = 4.0;
+    this.themeManager.state.theme = 'dark';
+    this.themeManager.state.circleHex = '#b0b0b0';
 
-    themeManager.applyTheme(()=>{});
-    rebuildGuides();
+    this.themeManager.applyTheme();
+    this.three.rebuildGuides(this.globalState);
 
-    app.addRow({ N:null, M:null, start:DEFAULT_START, animTimeSec:DEFAULT_ANIM_TIME, labelSizePx: DEFAULT_LABEL_SIZE });
+    this.addRow({ N:null, M:null, start:this.DEFAULT_START, animTimeSec:this.DEFAULT_ANIM_TIME, labelSizePx: this.DEFAULT_LABEL_SIZE });
 
-    hud.textContent = "N/M を入力して図形を描画します。";
-    app.scheduleDraw();
-  });
-
-  window.addEventListener('resize', ()=> app.scheduleDraw());
-
-  // =========================================================
-  // Boot
-  // =========================================================
-  function loop(){
-    requestAnimationFrame(loop);
-    renderer.render(scene, camera);
+    this.hudText.textContent = "N/M を入力して描画します。";
+    this.requestDrawAll();
   }
-
-  function boot(){
-    hud.textContent = "N/M を入力して図形を描画します。";
-    themeManager.applyTheme(()=>{});
-    rebuildGuides();
-
-    app.addRow({ N:null, M:null, start:DEFAULT_START, animTimeSec:DEFAULT_ANIM_TIME, labelSizePx: DEFAULT_LABEL_SIZE });
-
-    app.scheduleDraw();
-    loop();
-  }
-
-  app.resize();
-  updateCamera();
-  boot();
 }
 </script>
 </body>
