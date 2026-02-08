@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（正 N/M角形）</title>
+  <title>3D ストリングアート（正 N/M）</title>
 
   <style>
     :root{
@@ -71,6 +71,7 @@
     h1{ font-size:18px; margin:0 0 10px; }
     .desc{
       font-size:12px; color:var(--muted); line-height:1.55; margin-bottom:12px;
+      min-height: 0;
     }
 
     .controlsTop{
@@ -285,9 +286,7 @@
 <div class="wrap">
   <div class="panel">
     <h1>3D ストリングアート（正 N/M）</h1>
-    <div class="desc">
-      左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム / ダブルクリック=画角リセット
-    </div>
+    <div class="desc"></div>
 
     <div class="controlsTop">
       <button id="addRow" class="btnPrimary">＋ 追加</button>
@@ -304,7 +303,7 @@
   <div class="viewer">
     <canvas id="stage"></canvas>
     <div class="hud" id="hud">
-      <span id="hudText">起動中…</span>
+      <span id="hudText"></span>
       <span class="nmBadge" id="hudNM"></span>
     </div>
   </div>
@@ -412,7 +411,6 @@
 </div>
 
 <script>
-/* ================= Loader (local-first) ================= */
 function loadScriptWithFallback(urls){
   return new Promise((resolve, reject) => {
     let i = 0;
@@ -433,7 +431,6 @@ function loadScriptWithFallback(urls){
 window.addEventListener("load", async () => {
   const hudText = document.getElementById("hudText");
   try{
-    hudText.textContent = "Three.js 読み込み中…";
     const threeUrl = await loadScriptWithFallback([
       "./three.min.js",
       "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
@@ -445,12 +442,11 @@ window.addEventListener("load", async () => {
     if (typeof THREE === "undefined") throw new Error("THREE is undefined after loading script: " + threeUrl);
     new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
-    hudText.textContent = "起動失敗: Three.js の読み込みに失敗しました（Consoleを確認）。";
+    hudText.textContent = "起動失敗";
     console.error(e);
   }
 });
 
-/* ================= Utils ================= */
 class MathUtil{
   static TAU = Math.PI * 2;
   static mod(n, m){ return ((n % m) + m) % m; }
@@ -499,7 +495,6 @@ class CycleBuilder{
   }
 }
 
-/* ================= Theme ================= */
 class ThemeManager{
   constructor(){
     this.state = { theme: 'dark', circleHex: '#b0b0b0' };
@@ -580,7 +575,6 @@ class ThemeManager{
   }
 }
 
-/* ================= Render Scheduler ================= */
 class RenderScheduler{
   constructor(renderFn){
     this.renderFn = renderFn;
@@ -596,7 +590,6 @@ class RenderScheduler{
   }
 }
 
-/* ================= Three scene + controls + picking ================= */
 class ThreeScene{
   constructor({ stage, themeManager, requestRender }){
     this.stage = stage;
@@ -793,7 +786,6 @@ class ThreeScene{
   }
 }
 
-/* ================= Row model + builder ================= */
 class RowModel{
   constructor(initial){
     Object.assign(this, initial);
@@ -1017,7 +1009,6 @@ class RowBuilder{
   }
 }
 
-/* ================= App main ================= */
 class StringArt3DApp{
   constructor({ threeUrl }){
     this.stage = document.getElementById("stage");
@@ -1109,6 +1100,7 @@ class StringArt3DApp{
       labelSizePx:this.DEFAULT_LABEL_SIZE
     });
 
+    this.hudText.textContent = "";
     this.hidePickedNM();
     this.redrawAll();
   }
@@ -1197,8 +1189,7 @@ class StringArt3DApp{
     const playing = this.rows.filter(r => r.animPlaying).length;
     this.globalInfoEl.innerHTML = `
       <b>表示</b>: ${total} / <b>アニメ</b>: ${playing}<br/>
-      <b>R</b>: ${this.globalState.radius.toFixed(1)} , <b>H</b>: ${this.globalState.height.toFixed(1)}<br/>
-      <span style="opacity:.85">THREE: ${this.threeUrl}</span>
+      <b>R</b>: ${this.globalState.radius.toFixed(1)} , <b>H</b>: ${this.globalState.height.toFixed(1)}
     `;
   }
 
@@ -1270,10 +1261,10 @@ class StringArt3DApp{
     const updateMeta = ()=>{
       const N=r.N, M=r.M;
       if (!Number.isInteger(N) || !Number.isInteger(M)){
-        meta.textContent = `未入力`;
+        meta.textContent = ``;
         return;
       }
-      if (N < 2){ meta.textContent = `N は 2 以上`; return; }
+      if (N < 3){ meta.textContent = `N は 3 以上`; return; }
       if (M < 1){ meta.textContent = `M は 1 以上`; return; }
       const info = app.getCycleInfo(r);
       const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
@@ -1552,12 +1543,11 @@ class StringArt3DApp{
 
     this.addRow({ N:null, M:null, start:this.DEFAULT_START, animTimeSec:this.DEFAULT_ANIM_TIME, labelSizePx: this.DEFAULT_LABEL_SIZE });
 
-    this.hudText.textContent = "N/M を入力して描画します。";
+    this.hudText.textContent = "";
     this.redrawAll();
   }
 
   _installEvents(){
-    // row modal
     this.rowModalClose.addEventListener('click', ()=> this.closeRowSettings());
     this.rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.rowModalOverlay) this.closeRowSettings(); });
 
@@ -1569,7 +1559,6 @@ class StringArt3DApp{
       el.addEventListener('change', ()=> this.syncRowModalToRow());
     });
 
-    // global modal
     this.globalModalClose.addEventListener('click', ()=> this.closeGlobalSettings());
     this.globalModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.globalModalOverlay) this.closeGlobalSettings(); });
 
@@ -1578,12 +1567,10 @@ class StringArt3DApp{
     this.optRadius.addEventListener('input', ()=> this.syncGlobalModalToState());
     this.optHeight.addEventListener('input', ()=> this.syncGlobalModalToState());
 
-    // buttons
     this.btnAdd.addEventListener('click', ()=> this.addRow());
     this.btnOpenGlobal.addEventListener('click', ()=> this.openGlobalSettings());
     this.btnReset.addEventListener('click', ()=> this.resetAll());
 
-    // 全アニメ
     this.btnToggleAll.addEventListener("click", ()=>{
       this.globalPlaying = !this.globalPlaying;
 
@@ -1613,7 +1600,6 @@ class StringArt3DApp{
       }
     });
 
-    // PNG保存
     this.btnSave.addEventListener('click', ()=>{
       for (const r of this.rows){
         const info = this.getCycleInfo(r);
@@ -1632,16 +1618,13 @@ class StringArt3DApp{
       a.remove();
     });
 
-    // resize
     window.addEventListener('resize', ()=> this.redrawAll());
 
-    // クリック判定（ドラッグ後click無視）
     this.stage.addEventListener('pointerdown', (e)=>{
       this._downX = e.clientX;
       this._downY = e.clientY;
     });
 
-    // 線クリックでN/M表示、外クリックで消す
     this.stage.addEventListener('click', (e)=>{
       if (e.button !== 0) return;
 
@@ -1666,7 +1649,6 @@ class StringArt3DApp{
       this.showPickedNM(row.N, row.M);
     });
 
-    // ダブルクリックで画角リセット
     this.stage.addEventListener('dblclick', (e)=>{
       e.preventDefault();
       this.hidePickedNM();
