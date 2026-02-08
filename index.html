@@ -10,13 +10,21 @@
       --bg2:#111827;
       --fg:#e5e7eb;
       --muted:#9ca3af;
+
       --panel: rgba(17,24,39,.86);
       --border: rgba(255,255,255,.12);
+
       --btnBg: rgba(255,255,255,.06);
       --btnBgHover: rgba(255,255,255,.10);
       --btnBorder: rgba(255,255,255,.14);
+
       --inputBg: rgba(0,0,0,.25);
+
+      /* ★ 追加：テーマで切り替える */
+      --boxBg: rgba(0,0,0,.18);
+      --controlsBg: linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55));
     }
+
     *{ box-sizing:border-box; }
     html,body{ height:100%; }
     body{
@@ -25,11 +33,13 @@
       background: radial-gradient(1200px 700px at 30% 20%, var(--bg2), var(--bg));
       color:var(--fg);
     }
+
     .wrap{
       display:grid;
       grid-template-columns: 420px 1fr;
       height:100vh; width:100vw;
     }
+
     .panel{
       height:100vh; overflow:auto;
       padding:16px;
@@ -37,23 +47,28 @@
       border-right:1px solid rgba(255,255,255,.08);
       backdrop-filter: blur(8px);
     }
+
     h1{ margin:0 0 10px; font-size:18px; }
     .desc{ color:var(--muted); font-size:12px; line-height:1.55; margin-bottom:12px; }
+
     .box{
       border:1px solid var(--border);
       border-radius:14px;
       padding:12px;
-      background: rgba(0,0,0,.18);
+      background: var(--boxBg);          /* ★ テーマ変数 */
       margin-bottom:12px;
     }
+
     .row{
       display:grid;
       grid-template-columns: 1fr 1fr;
       gap:10px;
       margin-bottom:10px;
     }
+
     .field{ display:flex; flex-direction:column; gap:6px; }
     .label{ font-size:11px; color:var(--muted); }
+
     input[type="number"], select{
       width:100%;
       padding:10px;
@@ -68,13 +83,23 @@
       width:100%; height:36px;
       border:none; background:transparent; padding:0;
     }
+
     .btns{
-      display:flex; flex-wrap:wrap; gap:10px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+
+      /* ★ 中央寄せ */
+      justify-content:center;
+
       position: sticky; top:0; z-index:3;
       padding:10px 0;
-      background: linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55));
+
+      /* ★ テーマ変数 */
+      background: var(--controlsBg);
       border-bottom: 1px solid rgba(255,255,255,.06);
     }
+
     button{
       padding:10px 12px;
       border-radius:12px;
@@ -85,6 +110,7 @@
       user-select:none;
     }
     button:hover{ background: var(--btnBgHover); }
+
     .btnPrimary{ border-color: rgba(96,165,250,.55); }
     .btnToggle{ border-color: rgba(52,211,153,.45); }
     .btnWarn{ border-color: rgba(251,191,36,.55); }
@@ -107,7 +133,7 @@
       height:100%;
       display:block;
       cursor:grab;
-      touch-action: none; /* wheel/touchを奪われにくくする */
+      touch-action: none;
     }
     #stage.dragging{ cursor:grabbing; }
 
@@ -132,6 +158,7 @@
       border: 1px solid rgba(0,0,0,.18);
       color: rgba(17,24,39,.98);
     }
+
     .tiny{ font-size:11px; color:var(--muted); line-height:1.55; margin-top:8px; }
   </style>
 </head>
@@ -245,8 +272,9 @@
       </div>
 
       <div class="tiny">
-        操作：左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム（OrbitControls不要）<br/>
-        ※円柱本体は表示せず、上面/底面の円ガイドだけ描きます。
+        操作：左ドラッグ=回転 / 右ドラッグ=パン / ホイール=ズーム（自前コントロール）<br/>
+        ※円柱本体は表示せず、上面/底面の円ガイドだけ描きます。<br/>
+        ※アニメは「ストローク（線が伸びる）」で描画します。
       </div>
     </div>
 
@@ -373,7 +401,6 @@ function startApp({ threeUrl }){
   const btnReset = document.getElementById("btnReset");
   const btnShot  = document.getElementById("btnShot");
 
-  // 右クリックメニューでパンが邪魔されるのを防ぐ
   cv.addEventListener("contextmenu", (e)=>e.preventDefault());
 
   // -----------------------------
@@ -395,7 +422,6 @@ function startApp({ threeUrl }){
   dir.position.set(6, 10, 8);
   scene.add(dir);
 
-  // 描画対象は root にまとめて、回転は root を回す
   const root = new THREE.Group();
   scene.add(root);
 
@@ -403,50 +429,55 @@ function startApp({ threeUrl }){
   // Theme
   // -----------------------------
   function applyTheme(theme){
+    const rootStyle = document.documentElement.style;
+
     if (theme === "light"){
-      document.documentElement.style.setProperty("--bg", "#ffffff");
-      document.documentElement.style.setProperty("--bg2", "#ffffff");
-      document.documentElement.style.setProperty("--fg", "#111827");
-      document.documentElement.style.setProperty("--muted", "#374151");
-      document.documentElement.style.setProperty("--panel", "#ffffff");
-      document.documentElement.style.setProperty("--border", "rgba(0,0,0,.12)");
-      document.documentElement.style.setProperty("--btnBg", "#ffffff");
-      document.documentElement.style.setProperty("--btnBgHover", "rgba(0,0,0,.06)");
-      document.documentElement.style.setProperty("--btnBorder", "rgba(0,0,0,.25)");
-      document.documentElement.style.setProperty("--inputBg", "#ffffff");
+      rootStyle.setProperty("--bg", "#ffffff");
+      rootStyle.setProperty("--bg2", "#ffffff");
+      rootStyle.setProperty("--fg", "#111827");
+      rootStyle.setProperty("--muted", "#374151");
+      rootStyle.setProperty("--panel", "#ffffff");
+      rootStyle.setProperty("--border", "rgba(0,0,0,.12)");
+      rootStyle.setProperty("--btnBg", "#ffffff");
+      rootStyle.setProperty("--btnBgHover", "rgba(0,0,0,.06)");
+      rootStyle.setProperty("--btnBorder", "rgba(0,0,0,.25)");
+      rootStyle.setProperty("--inputBg", "#ffffff");
+
+      /* ★ 追加：ライト用の箱背景/ボタン帯背景 */
+      rootStyle.setProperty("--boxBg", "rgba(0,0,0,.03)");
+      rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,.65))");
+
       hud.classList.add("light");
       scene.background = new THREE.Color("#ffffff");
     } else {
-      document.documentElement.style.setProperty("--bg", "#0b0f17");
-      document.documentElement.style.setProperty("--bg2", "#111827");
-      document.documentElement.style.setProperty("--fg", "#e5e7eb");
-      document.documentElement.style.setProperty("--muted", "#9ca3af");
-      document.documentElement.style.setProperty("--panel", "rgba(17,24,39,.86)");
-      document.documentElement.style.setProperty("--border", "rgba(255,255,255,.12)");
-      document.documentElement.style.setProperty("--btnBg", "rgba(255,255,255,.06)");
-      document.documentElement.style.setProperty("--btnBgHover", "rgba(255,255,255,.10)");
-      document.documentElement.style.setProperty("--btnBorder", "rgba(255,255,255,.14)");
-      document.documentElement.style.setProperty("--inputBg", "rgba(0,0,0,.25)");
+      rootStyle.setProperty("--bg", "#0b0f17");
+      rootStyle.setProperty("--bg2", "#111827");
+      rootStyle.setProperty("--fg", "#e5e7eb");
+      rootStyle.setProperty("--muted", "#9ca3af");
+      rootStyle.setProperty("--panel", "rgba(17,24,39,.86)");
+      rootStyle.setProperty("--border", "rgba(255,255,255,.12)");
+      rootStyle.setProperty("--btnBg", "rgba(255,255,255,.06)");
+      rootStyle.setProperty("--btnBgHover", "rgba(255,255,255,.10)");
+      rootStyle.setProperty("--btnBorder", "rgba(255,255,255,.14)");
+      rootStyle.setProperty("--inputBg", "rgba(0,0,0,.25)");
+
+      /* ★ 追加：ダーク用の箱背景/ボタン帯背景 */
+      rootStyle.setProperty("--boxBg", "rgba(0,0,0,.18)");
+      rootStyle.setProperty("--controlsBg", "linear-gradient(to bottom, rgba(17,24,39,1), rgba(17,24,39,.55))");
+
       hud.classList.remove("light");
       scene.background = new THREE.Color("#0b0f17");
     }
   }
 
   // -----------------------------
-  // Manual camera control (確実に動く：回転/パン/ズーム)
+  // Manual camera control
   // -----------------------------
   const view = {
-    // “見る中心（パンで動く）”
     target: new THREE.Vector3(0,0,0),
-
-    // カメラ距離（ズーム）
     dist: 12,
-
-    // 回転（ラジアン）
     yaw: 0.9,
     pitch: 0.55,
-
-    // 制限
     minDist: 2.0,
     maxDist: 80.0,
     minPitch: -1.45,
@@ -454,7 +485,6 @@ function startApp({ threeUrl }){
   };
 
   function updateCamera(){
-    // 球座標→直交座標
     const cp = Math.cos(view.pitch);
     const sp = Math.sin(view.pitch);
     const cy = Math.cos(view.yaw);
@@ -478,13 +508,12 @@ function startApp({ threeUrl }){
     updateCamera();
   }
 
-  // ピクセル→パンのスケール（距離に応じて自然に）
   function panScale(){
     return view.dist * 0.0012;
   }
 
   let dragging = false;
-  let dragButton = 0; // 0:left, 2:right
+  let dragButton = 0;
   let lastX = 0, lastY = 0;
 
   cv.addEventListener("pointerdown", (e)=>{
@@ -510,8 +539,6 @@ function startApp({ threeUrl }){
     lastY = e.clientY;
 
     if (dragButton === 2) {
-      // 右ドラッグ：パン（画面の右＝ワールドの右、画面の上＝ワールドの上）
-      // カメラの右・上ベクトルを使って target を動かす
       const s = panScale();
       const forward = new THREE.Vector3().subVectors(view.target, camera.position).normalize();
       const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
@@ -521,7 +548,6 @@ function startApp({ threeUrl }){
       view.target.addScaledVector(up,   dy * s);
       updateCamera();
     } else {
-      // 左ドラッグ：回転
       view.yaw   -= dx * 0.006;
       view.pitch -= dy * 0.006;
       view.pitch = Math.max(view.minPitch, Math.min(view.maxPitch, view.pitch));
@@ -529,11 +555,9 @@ function startApp({ threeUrl }){
     }
   });
 
-  // ホイールズーム（passive:false）
   cv.addEventListener("wheel", (e)=>{
     e.preventDefault();
-    const delta = e.deltaY;
-    const factor = Math.exp(delta * 0.0012); // deltaY>0で縮む
+    const factor = Math.exp(e.deltaY * 0.0012);
     view.dist *= factor;
     view.dist = Math.max(view.minDist, Math.min(view.maxDist, view.dist));
     updateCamera();
@@ -559,7 +583,6 @@ function startApp({ threeUrl }){
     }
   }
 
-  // 円柱本体は描かず、上面/底面の“円ガイド”だけ
   function buildGuideRings(R, H){
     const ringMatTop = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
     const ringMatBot = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.14 });
@@ -582,8 +605,7 @@ function startApp({ threeUrl }){
   }
 
   function buildPins(N, R, z, colorHex, pred){
-    const allowed = [];
-    for (let i=0;i<N;i++) if (pred(i)) allowed.push(i);
+    const allowed = buildAllowedList(N, pred);
 
     const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
     const m = new THREE.MeshStandardMaterial({
@@ -609,6 +631,9 @@ function startApp({ threeUrl }){
   let lines = null;
   let totalSegments = 0;
 
+  /* ★ ストローク用：完全版の座標を保存 */
+  let basePositions = null;
+
   function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor){
     const step = mod(M, N);
     const bottomSet = new Set(bottomAllowed);
@@ -619,8 +644,11 @@ function startApp({ threeUrl }){
     const positions = [];
     let count = 0;
 
+    // topAllowed は「上面で使う点」なので、それだけ線を作る
+    const topSet = new Set(topAllowed);
+
     for (let i=0;i<N;i++){
-      if (!topAllowed.includes(i)) continue;
+      if (!topSet.has(i)) continue;
 
       const j0 = mod(i + step, N);
       const j = bottomSet.has(j0) ? j0 : snapToAllowed(N, j0, bottomAllowed);
@@ -636,8 +664,13 @@ function startApp({ threeUrl }){
       count++;
     }
 
+    const arr = new Float32Array(positions);
+
+    // ★完全版を保存（ストローク補間で使う）
+    basePositions = new Float32Array(arr);
+
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(arr, 3));
     geo.setDrawRange(0, 0);
 
     const mat = new THREE.LineBasicMaterial({
@@ -653,11 +686,50 @@ function startApp({ threeUrl }){
     totalSegments = count;
   }
 
+  /* ★ ストローク（線が伸びる）版 */
   function setLineProgress(p){
-    if (!lines) return;
+    if (!lines || !basePositions) return;
+
     const geo = lines.geometry;
-    const segToShow = Math.floor(Math.max(0, Math.min(1, p)) * totalSegments);
-    geo.setDrawRange(0, segToShow * 2);
+    const posAttr = geo.getAttribute("position");
+    const pos = posAttr.array; // Float32Array
+
+    const t = Math.max(0, Math.min(1, p)) * totalSegments;
+    const k = Math.floor(t);
+    const frac = t - k;
+
+    const segVisible = (k < totalSegments && frac > 0) ? (k + 1) : k;
+    geo.setDrawRange(0, segVisible * 2);
+
+    // 伸びる1本がない場合：最後の補間が残らないように復元だけして終わり
+    if (!(k < totalSegments && frac > 0)) {
+      if (segVisible > 0){
+        const last = (segVisible - 1) * 6;
+        pos[last+0] = basePositions[last+0];
+        pos[last+1] = basePositions[last+1];
+        pos[last+2] = basePositions[last+2];
+        pos[last+3] = basePositions[last+3];
+        pos[last+4] = basePositions[last+4];
+        pos[last+5] = basePositions[last+5];
+        posAttr.needsUpdate = true;
+      }
+      return;
+    }
+
+    // k番目の線分をfracだけ伸ばす
+    const idx = k * 6;
+
+    const ax = basePositions[idx+0], ay = basePositions[idx+1], az = basePositions[idx+2];
+    const bx = basePositions[idx+3], by = basePositions[idx+4], bz = basePositions[idx+5];
+
+    const mx = ax + (bx - ax) * frac;
+    const my = ay + (by - ay) * frac;
+    const mz = az + (bz - az) * frac;
+
+    pos[idx+0] = ax; pos[idx+1] = ay; pos[idx+2] = az;
+    pos[idx+3] = mx; pos[idx+4] = my; pos[idx+5] = mz;
+
+    posAttr.needsUpdate = true;
   }
 
   // -----------------------------
@@ -699,6 +771,10 @@ function startApp({ threeUrl }){
     applyTheme(selTheme.value);
 
     clearRoot();
+    lines = null;
+    totalSegments = 0;
+    basePositions = null;
+
     buildGuideRings(R, H);
 
     const topPred = makeFilter(topKind, topK, topR);
