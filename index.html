@@ -462,7 +462,6 @@ class MathUtil{
 }
 
 class CycleBuilder{
-  // nodes: [{side:"T"|"B", idx:int}, ...] (最後はstart(T)に戻る点を含む)
   static buildCycle3D(N, M, start){
     const step = MathUtil.mod(M, N);
     const s = MathUtil.mod(start, N);
@@ -581,11 +580,28 @@ class ThemeManager{
   }
 }
 
+/* ================= Render Scheduler ================= */
+class RenderScheduler{
+  constructor(renderFn){
+    this.renderFn = renderFn;
+    this.pending = false;
+  }
+  request(){
+    if (this.pending) return;
+    this.pending = true;
+    requestAnimationFrame(()=>{
+      this.pending = false;
+      this.renderFn();
+    });
+  }
+}
+
 /* ================= Three scene + controls + picking ================= */
 class ThreeScene{
-  constructor({ stage, themeManager }){
+  constructor({ stage, themeManager, requestRender }){
     this.stage = stage;
     this.themeManager = themeManager;
+    this.requestRender = requestRender;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: stage,
@@ -610,7 +626,7 @@ class ThreeScene{
     this.root3D.add(this.guideGroup);
 
     this.raycaster = new THREE.Raycaster();
-    this.raycaster.params.Line = { threshold: 0.10 };
+    this.raycaster.params.Line = { threshold: 0.12 };
     this.pointerNDC = new THREE.Vector2();
 
     this.view = {
@@ -645,6 +661,7 @@ class ThreeScene{
       this.camera.position.set(x,y,z);
       this.camera.lookAt(v.target);
       this.camera.updateProjectionMatrix();
+      this.requestRender(); // ★重要：操作のたびに再描画
     };
     this.updateCamera = updateCamera;
 
@@ -685,7 +702,7 @@ class ThreeScene{
         this.view.target.addScaledVector(right, -dx * s);
         this.view.target.addScaledVector(up,   dy * s);
         updateCamera();
-      } else {
+      } else if (dragButton === 0) {
         this.view.yaw   -= dx * 0.006;
         this.view.pitch -= dy * 0.006;
         this.view.pitch = Math.max(this.view.minPitch, Math.min(this.view.maxPitch, this.view.pitch));
@@ -991,7 +1008,7 @@ class RowBuilder{
     });
 
     const line = new THREE.Line(geo, mat);
-    line.userData.rowId = r.id; // ★クリックで特定
+    line.userData.rowId = r.id;
     r.pathLine = line;
     group.add(line);
 
@@ -1038,9 +1055,12 @@ class StringArt3DApp{
     this.themeManager = new ThemeManager();
     this.globalState = { radius: 3.0, height: 4.0 };
 
+    this.scheduler = new RenderScheduler(()=>this._renderOnce());
+
     this.three = new ThreeScene({
       stage: this.stage,
-      themeManager: this.themeManager
+      themeManager: this.themeManager,
+      requestRender: ()=>this.requestRender()
     });
 
     this.rowBuilder = new RowBuilder({
@@ -1065,9 +1085,15 @@ class StringArt3DApp{
     this.rafAnim = null;
     this.lastT = null;
 
-    // クリック判定（ドラッグ後clickを無視）
     this._downX = 0;
     this._downY = 0;
+  }
+
+  requestRender(){ this.scheduler.request(); }
+
+  _renderOnce(){
+    this.three.resize();
+    this.three.render();
   }
 
   boot(){
@@ -1092,7 +1118,7 @@ class StringArt3DApp{
     this.three.resize();
     for (const r of this.rows) this.rowBuilder.buildRow3D(r);
     this.updateGlobalInfo();
-    this.three.render();
+    this.requestRender();
 
     if (this.anyAnimationPlaying() && !this.rafAnim){
       this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
@@ -1153,7 +1179,7 @@ class StringArt3DApp{
     }
 
     this.updateGlobalInfo();
-    this.three.render();
+    this.requestRender();
 
     if (this.anyAnimationPlaying()){
       this.rafAnim = requestAnimationFrame((tt)=>this._tick(tt));
@@ -1596,7 +1622,7 @@ class StringArt3DApp{
           this.rowBuilder.setRowLineProgress(r, info.edges);
         }
       }
-      this.three.render();
+      this.requestRender();
 
       const url = this.three.renderer.domElement.toDataURL('image/png');
       const a = document.createElement('a');
@@ -1610,7 +1636,7 @@ class StringArt3DApp{
     // resize
     window.addEventListener('resize', ()=> this.redrawAll());
 
-    // クリック用（ドラッグ後clickは無視）
+    // クリック判定（ドラッグ後click無視）
     this.stage.addEventListener('pointerdown', (e)=>{
       this._downX = e.clientX;
       this._downY = e.clientY;
@@ -1618,11 +1644,11 @@ class StringArt3DApp{
 
     // 線クリックでN/M表示、外クリックで消す
     this.stage.addEventListener('click', (e)=>{
-      if (e.button !== 0) return; // 左のみ
+      if (e.button !== 0) return;
 
       const dx = e.clientX - this._downX;
       const dy = e.clientY - this._downY;
-      if ((dx*dx + dy*dy) > 9) return; // ドラッグ判定（3px）
+      if ((dx*dx + dy*dy) > 9) return;
 
       const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
       const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
@@ -1646,7 +1672,7 @@ class StringArt3DApp{
       e.preventDefault();
       this.hidePickedNM();
       this.three.resetViewToFit(this.globalState.radius, this.globalState.height);
-      this.three.render();
+      this.requestRender();
     });
   }
 }
