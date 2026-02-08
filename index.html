@@ -278,13 +278,6 @@
       font-size: 12px;
     }
     select.miniInput{ width: 190px; }
-
-    .tiny{
-      font-size:11px;
-      color: var(--muted);
-      line-height: 1.5;
-      margin-top: 8px;
-    }
   </style>
 </head>
 
@@ -371,8 +364,6 @@
           <input class="miniInput" type="number" id="optStart" step="1" />
         </div>
       </div>
-
-      <div class="tiny">※ start は内部で start mod N</div>
     </div>
   </div>
 </div>
@@ -421,11 +412,12 @@
 </div>
 
 <script>
+/* ================= Loader (local-first) ================= */
 function loadScriptWithFallback(urls){
   return new Promise((resolve, reject) => {
     let i = 0;
     const tryNext = () => {
-      if (i >= urls.length) { reject(new Error("All CDN failed: " + urls.join(" | "))); return; }
+      if (i >= urls.length) { reject(new Error("All script sources failed: " + urls.join(" | "))); return; }
       const url = urls[i++];
       const s = document.createElement("script");
       s.src = url;
@@ -443,13 +435,21 @@ window.addEventListener("load", async () => {
   try{
     hudText.textContent = "Three.js 読み込み中…";
     const threeUrl = await loadScriptWithFallback([
+      "./three.min.js", // ★最優先：ローカル同梱（GitHub Pages/学校環境で強い）
       "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js",
       "https://unpkg.com/three@0.160.0/build/three.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"
+      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js",
+      "https://threejs.org/build/three.min.js"
     ]);
+
+    // ここで THREE が存在するか最終チェック
+    if (typeof THREE === "undefined") {
+      throw new Error("THREE is undefined after loading script: " + threeUrl);
+    }
+
     new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
-    hudText.textContent = "起動失敗: CDNがブロックされている可能性があります。";
+    hudText.textContent = "起動失敗: three.min.js が読み込めません（ローカル/CDN）。Consoleを確認してください。";
     console.error(e);
   }
 });
@@ -466,6 +466,7 @@ class MathUtil{
 }
 
 class CycleBuilder{
+  // nodes: [{side:"T"|"B", idx:int}, ...] (最後はstart(T)に戻る点を含む)
   static buildCycle3D(N, M, start){
     const step = MathUtil.mod(M, N);
     const s = MathUtil.mod(start, N);
@@ -584,7 +585,7 @@ class ThemeManager{
   }
 }
 
-/* ================= Three wrapper (重要: カメラ操作で render する) ================= */
+/* ================= Three scene + controls ================= */
 class ThreeScene{
   constructor({ stage, themeManager, onViewChange }){
     this.stage = stage;
@@ -614,6 +615,7 @@ class ThreeScene{
     this.root3D.add(this.guideGroup);
 
     this.raycaster = new THREE.Raycaster();
+    // 線のクリック当たり判定を取りやすく
     this.raycaster.params.Line = { threshold: 0.08 };
     this.pointerNDC = new THREE.Vector2();
 
@@ -650,7 +652,7 @@ class ThreeScene{
       this.camera.lookAt(v.target);
       this.camera.updateProjectionMatrix();
 
-      // ★ カメラが動いたら即レンダリング
+      // ★カメラが動いたら即反映
       this.onViewChange();
     };
     this.updateCamera = updateCamera;
@@ -717,7 +719,6 @@ class ThreeScene{
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    // resize 直後も反映
     this.onViewChange();
   }
 
@@ -773,14 +774,14 @@ class ThreeScene{
     this.resetViewToFit(R, H);
   }
 
-  pickLine(clientX, clientY, rowLineObjects){
+  pickLine(clientX, clientY, lineObjects){
     const rect = this.stage.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
     this.pointerNDC.set(x,y);
 
     this.raycaster.setFromCamera(this.pointerNDC, this.camera);
-    const hits = this.raycaster.intersectObjects(rowLineObjects, false);
+    const hits = this.raycaster.intersectObjects(lineObjects, false);
     if (!hits.length) return null;
     return hits[0].object;
   }
@@ -1048,7 +1049,6 @@ class StringArt3DApp{
     this.themeManager = new ThemeManager();
     this.globalState = { radius: 3.0, height: 4.0 };
 
-    // ★ onViewChange: カメラが動いたらレンダリングだけ行う（再ビルドはしない）
     this.three = new ThreeScene({
       stage: this.stage,
       themeManager: this.themeManager,
@@ -1133,11 +1133,8 @@ class StringArt3DApp{
     const dt = (t - this.lastT) / 1000;
     this.lastT = t;
 
-    let any = false;
-
     for (const r of this.rows){
       if (!r.animPlaying) continue;
-      any = true;
 
       const info = this.getCycleInfo(r);
       if (!info.valid || info.edges <= 0){
@@ -1186,7 +1183,6 @@ class StringArt3DApp{
   newRowDefaults(){
     const idx = this.rows.length;
     const base = this.palette[idx % this.palette.length];
-
     return new RowModel({
       id: this.nextId++,
       N: null,
@@ -1340,7 +1336,6 @@ class StringArt3DApp{
       stopGlobalIfNeeded();
       app.hidePickedNM();
 
-      // 再構築して開始位置反映
       app.redrawAll();
       if (r.animPlaying && !app.rafAnim){
         app.rafAnim = requestAnimationFrame((t)=>app._tick(t));
@@ -1407,6 +1402,7 @@ class StringArt3DApp{
     this.optLabelSize.value = String(r.labelSizePx);
     this.optLineColor.value = r.lineColor;
     this.optPointColor.value = r.pointColor;
+
     this.optAnimTime.value = String(Number(r.animTimeSec).toFixed(1));
     this.optStart.value = String(Number.isFinite(r.start) ? r.start : 0);
 
@@ -1626,7 +1622,7 @@ class StringArt3DApp{
       this.redrawAll();
     });
 
-    // クリック判定（ドラッグと競合しない）
+    // 線クリック（左クリック）でN/M表示、外クリックで消す（ドラッグとは競合させない）
     let downX = 0, downY = 0;
     this.stage.addEventListener('pointerdown', (e)=>{
       downX = e.clientX;
@@ -1634,11 +1630,13 @@ class StringArt3DApp{
     });
 
     this.stage.addEventListener('click', (e)=>{
+      // 左クリックのみ
       if (e.button !== 0) return;
 
+      // ドラッグ後のclickは無視（3px超）
       const dx = e.clientX - downX;
       const dy = e.clientY - downY;
-      if ((dx*dx + dy*dy) > 9) return; // 3px超はドラッグ扱い
+      if ((dx*dx + dy*dy) > 9) return;
 
       const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
       const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
@@ -1657,12 +1655,11 @@ class StringArt3DApp{
       this.showPickedNM(row.N, row.M);
     });
 
-    // ★ ダブルクリックで初期画角へ
+    // ダブルクリックで初期画角に戻す（ついでにN/M表示も消す）
     this.stage.addEventListener('dblclick', (e)=>{
       e.preventDefault();
       this.hidePickedNM();
       this.three.resetViewToFit(this.globalState.radius, this.globalState.height);
-      // resetViewToFit 内で onViewChange が走るので render 済みだが、念のため
       this.three.render();
     });
   }
