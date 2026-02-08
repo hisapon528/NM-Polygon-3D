@@ -372,9 +372,7 @@
         </div>
       </div>
 
-      <div class="tiny">
-        ※ start は内部で start mod N
-      </div>
+      <div class="tiny">※ start は内部で start mod N</div>
     </div>
   </div>
 </div>
@@ -423,9 +421,6 @@
 </div>
 
 <script>
-/* =========================================================
-   Script loader
-========================================================= */
 function loadScriptWithFallback(urls){
   return new Promise((resolve, reject) => {
     let i = 0;
@@ -459,9 +454,7 @@ window.addEventListener("load", async () => {
   }
 });
 
-/* =========================================================
-   Utils
-========================================================= */
+/* ================= Utils ================= */
 class MathUtil{
   static TAU = Math.PI * 2;
   static mod(n, m){ return ((n % m) + m) % m; }
@@ -476,7 +469,6 @@ class CycleBuilder{
   static buildCycle3D(N, M, start){
     const step = MathUtil.mod(M, N);
     const s = MathUtil.mod(start, N);
-
     const nodes = [{ side:"T", idx:s }];
 
     if (N <= 0 || step === 0){
@@ -511,9 +503,7 @@ class CycleBuilder{
   }
 }
 
-/* =========================================================
-   Theme manager
-========================================================= */
+/* ================= Theme ================= */
 class ThemeManager{
   constructor(){
     this.state = { theme: 'dark', circleHex: '#b0b0b0' };
@@ -594,13 +584,12 @@ class ThemeManager{
   }
 }
 
-/* =========================================================
-   Three scene wrapper
-========================================================= */
+/* ================= Three wrapper (重要: カメラ操作で render する) ================= */
 class ThreeScene{
-  constructor({ stage, themeManager }){
+  constructor({ stage, themeManager, onViewChange }){
     this.stage = stage;
     this.themeManager = themeManager;
+    this.onViewChange = onViewChange || (()=>{});
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: stage,
@@ -660,6 +649,9 @@ class ThreeScene{
       this.camera.position.set(x,y,z);
       this.camera.lookAt(v.target);
       this.camera.updateProjectionMatrix();
+
+      // ★ カメラが動いたら即レンダリング
+      this.onViewChange();
     };
     this.updateCamera = updateCamera;
 
@@ -725,7 +717,8 @@ class ThreeScene{
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.updateCamera();
+    // resize 直後も反映
+    this.onViewChange();
   }
 
   render(){
@@ -793,18 +786,14 @@ class ThreeScene{
   }
 }
 
-/* =========================================================
-   Row model + builder
-========================================================= */
+/* ================= Row model + builder ================= */
 class RowModel{
   constructor(initial){
     Object.assign(this, initial);
-
     this.group = null;
     this.pathLine = null;
     this.pathBasePos = null;
     this.pathEdges = 0;
-
     this.animPlaying = false;
     this.animProgressEdges = 0.0;
     this.animSpeedEdgesPerSec = 0.0;
@@ -1021,9 +1010,7 @@ class RowBuilder{
   }
 }
 
-/* =========================================================
-   App main
-========================================================= */
+/* ================= App main ================= */
 class StringArt3DApp{
   constructor({ threeUrl }){
     this.stage = document.getElementById("stage");
@@ -1061,8 +1048,18 @@ class StringArt3DApp{
     this.themeManager = new ThemeManager();
     this.globalState = { radius: 3.0, height: 4.0 };
 
-    this.three = new ThreeScene({ stage: this.stage, themeManager: this.themeManager });
-    this.rowBuilder = new RowBuilder({ threeScene: this.three, themeManager: this.themeManager, globalState: this.globalState });
+    // ★ onViewChange: カメラが動いたらレンダリングだけ行う（再ビルドはしない）
+    this.three = new ThreeScene({
+      stage: this.stage,
+      themeManager: this.themeManager,
+      onViewChange: ()=> this.three.render()
+    });
+
+    this.rowBuilder = new RowBuilder({
+      threeScene: this.three,
+      themeManager: this.themeManager,
+      globalState: this.globalState
+    });
 
     this.DEFAULT_ANIM_TIME = 8.0;
     this.DEFAULT_START = 0;
@@ -1075,18 +1072,10 @@ class StringArt3DApp{
 
     this.nextId = 1;
     this.rows = [];
-
     this.globalPlaying = false;
 
     this.rafAnim = null;
     this.lastT = null;
-
-    this.rafDraw = null;
-    this.dirtyAll = false;
-    this.dirtyRowIds = new Set();
-
-    this.modalRow = null;
-    this.modalRowCard = null;
   }
 
   boot(){
@@ -1103,8 +1092,13 @@ class StringArt3DApp{
 
     this.hudText.textContent = "N/M を入力して描画します。";
     this.hidePickedNM();
-    this.requestDrawAll();
+    this.redrawAll();
+  }
+
+  redrawAll(){
     this.three.resize();
+    for (const r of this.rows) this.rowBuilder.buildRow3D(r);
+    this.updateGlobalInfo();
     this.three.render();
   }
 
@@ -1134,52 +1128,16 @@ class StringArt3DApp{
     return this.rows.some(r => r.animPlaying);
   }
 
-  requestDrawAll(){
-    this.dirtyAll = true;
-    this.dirtyRowIds.clear();
-    this._requestDraw();
-  }
-  requestDrawRow(rowId){
-    if (!this.dirtyAll) this.dirtyRowIds.add(rowId);
-    this._requestDraw();
-  }
-  _requestDraw(){
-    if (this.rafDraw) return;
-    this.rafDraw = requestAnimationFrame(()=>{
-      this.rafDraw = null;
-      this._applyDraw();
-    });
-  }
-  _applyDraw(){
-    this.three.resize();
-
-    if (this.dirtyAll){
-      for (const r of this.rows) this.rowBuilder.buildRow3D(r);
-    } else {
-      for (const id of this.dirtyRowIds){
-        const r = this.rows.find(x=>x.id===id);
-        if (r) this.rowBuilder.buildRow3D(r);
-      }
-    }
-
-    this.dirtyAll = false;
-    this.dirtyRowIds.clear();
-
-    this.updateGlobalInfo();
-    this.three.render();
-
-    if (this.anyAnimationPlaying() && !this.rafAnim){
-      this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
-    }
-  }
-
   _tick(t){
     if (this.lastT == null) this.lastT = t;
     const dt = (t - this.lastT) / 1000;
     this.lastT = t;
 
+    let any = false;
+
     for (const r of this.rows){
       if (!r.animPlaying) continue;
+      any = true;
 
       const info = this.getCycleInfo(r);
       if (!info.valid || info.edges <= 0){
@@ -1200,8 +1158,8 @@ class StringArt3DApp{
       this.rowBuilder.setRowLineProgress(r, r.animProgressEdges);
     }
 
-    this.three.render();
     this.updateGlobalInfo();
+    this.three.render();
 
     if (this.anyAnimationPlaying()){
       this.rafAnim = requestAnimationFrame((tt)=>this._tick(tt));
@@ -1213,12 +1171,6 @@ class StringArt3DApp{
         this.btnToggleAll.textContent = "▶ 全アニメ再生";
       }
     }
-  }
-
-  rowTitle(r){
-    const n = (r.N == null ? "" : r.N);
-    const m = (r.M == null ? "" : r.M);
-    return `#${r.id}  N=${n}, M=${m}`;
   }
 
   updateGlobalInfo(){
@@ -1303,14 +1255,8 @@ class StringArt3DApp{
         meta.textContent = `未入力`;
         return;
       }
-      if (N < 3){
-        meta.textContent = `N は 3 以上`;
-        return;
-      }
-      if (M < 1){
-        meta.textContent = `M は 1 以上`;
-        return;
-      }
+      if (N < 3){ meta.textContent = `N は 3 以上`; return; }
+      if (M < 1){ meta.textContent = `M は 1 以上`; return; }
       const info = app.getCycleInfo(r);
       const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
       meta.innerHTML = `start=${info.startN}, step=${info.step}, edges=${info.edges}, time=${r.animTimeSec.toFixed(1)}s ${sw}`;
@@ -1333,40 +1279,38 @@ class StringArt3DApp{
       const raw = inN.value.trim();
       if (raw === ''){
         r.N = null;
-        resetAnim();
-        stopGlobalIfNeeded();
+        resetAnim(); stopGlobalIfNeeded();
         card._updateMeta();
-        app.requestDrawRow(r.id);
+        app.hidePickedNM();
+        app.redrawAll();
         return;
       }
       const v = Math.floor(Number(raw));
-      r.N = Number.isFinite(v) ? v : null;
-      if (r.N != null && r.N < 1) r.N = 1;
+      r.N = Number.isFinite(v) ? Math.max(1, v) : null;
       inN.value = (r.N == null ? '' : String(r.N));
-      resetAnim();
-      stopGlobalIfNeeded();
+      resetAnim(); stopGlobalIfNeeded();
       card._updateMeta();
-      app.requestDrawRow(r.id);
+      app.hidePickedNM();
+      app.redrawAll();
     };
 
     const applyM = ()=>{
       const raw = inM.value.trim();
       if (raw === ''){
         r.M = null;
-        resetAnim();
-        stopGlobalIfNeeded();
+        resetAnim(); stopGlobalIfNeeded();
         card._updateMeta();
-        app.requestDrawRow(r.id);
+        app.hidePickedNM();
+        app.redrawAll();
         return;
       }
       const v = Math.floor(Number(raw));
-      r.M = Number.isFinite(v) ? v : null;
-      if (r.M != null && r.M < 1) r.M = 1;
+      r.M = Number.isFinite(v) ? Math.max(1, v) : null;
       inM.value = (r.M == null ? '' : String(r.M));
-      resetAnim();
-      stopGlobalIfNeeded();
+      resetAnim(); stopGlobalIfNeeded();
       card._updateMeta();
-      app.requestDrawRow(r.id);
+      app.hidePickedNM();
+      app.redrawAll();
     };
 
     inN.addEventListener('input', applyN);
@@ -1382,7 +1326,7 @@ class StringArt3DApp{
         r.animPlaying = false;
         r.animProgressEdges = 0.0;
         card._setAnimIcon();
-        app.requestDrawRow(r.id);
+        app.redrawAll();
         return;
       }
 
@@ -1394,8 +1338,10 @@ class StringArt3DApp{
       card._setAnimIcon();
 
       stopGlobalIfNeeded();
-      app.requestDrawRow(r.id);
+      app.hidePickedNM();
 
+      // 再構築して開始位置反映
+      app.redrawAll();
       if (r.animPlaying && !app.rafAnim){
         app.rafAnim = requestAnimationFrame((t)=>app._tick(t));
       }
@@ -1412,7 +1358,7 @@ class StringArt3DApp{
         app.rows.splice(i,1);
       }
       card.remove();
-      app.requestDrawAll();
+      app.redrawAll();
     });
 
     card._updateMeta = updateMeta;
@@ -1445,24 +1391,22 @@ class StringArt3DApp{
 
     this.rows.push(r);
     this.rowsEl.appendChild(this.createRowUI(r));
-    this.requestDrawRow(r.id);
+    this.redrawAll();
   }
 
   openRowSettings(r, card){
     this.modalRow = r;
     this.modalRowCard = card;
 
-    this.rowModalTitle.textContent = `設定 ${this.rowTitle(r)}`;
+    this.rowModalTitle.textContent = `設定 #${r.id}`;
 
     this.optVisible.checked = r.visible;
     this.optShowPoints.checked = r.showPoints;
     this.optShowLabels.checked = r.showLabels;
 
     this.optLabelSize.value = String(r.labelSizePx);
-
     this.optLineColor.value = r.lineColor;
     this.optPointColor.value = r.pointColor;
-
     this.optAnimTime.value = String(Number(r.animTimeSec).toFixed(1));
     this.optStart.value = String(Number.isFinite(r.start) ? r.start : 0);
 
@@ -1516,7 +1460,7 @@ class StringArt3DApp{
     if (this.modalRowCard && this.modalRowCard._setAnimIcon) this.modalRowCard._setAnimIcon();
 
     this.hidePickedNM();
-    this.requestDrawRow(r.id);
+    this.redrawAll();
   }
 
   openGlobalSettings(){
@@ -1549,7 +1493,7 @@ class StringArt3DApp{
     this.themeManager.applyTheme();
     this.three.rebuildGuides(this.globalState);
     this.hidePickedNM();
-    this.requestDrawAll();
+    this.redrawAll();
   }
 
   prepareSpeedsForAll(){
@@ -1565,131 +1509,6 @@ class StringArt3DApp{
       r.animProgressEdges = 0.0;
       r.animSpeedEdgesPerSec = (info.valid && info.edges > 0) ? (info.edges / Tglobal) : 0.0;
     }
-  }
-
-  _installEvents(){
-    // row modal
-    this.rowModalClose.addEventListener('click', ()=> this.closeRowSettings());
-    this.rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.rowModalOverlay) this.closeRowSettings(); });
-
-    [
-      this.optVisible, this.optShowPoints, this.optShowLabels, this.optLabelSize,
-      this.optLineColor, this.optPointColor, this.optAnimTime, this.optStart
-    ].forEach(el=>{
-      el.addEventListener('input', ()=> this.syncRowModalToRow());
-      el.addEventListener('change', ()=> this.syncRowModalToRow());
-    });
-
-    // global modal
-    this.globalModalClose.addEventListener('click', ()=> this.closeGlobalSettings());
-    this.globalModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.globalModalOverlay) this.closeGlobalSettings(); });
-
-    this.optTheme.addEventListener('change', ()=> this.syncGlobalModalToState());
-    this.optCircleColor.addEventListener('input', ()=> this.syncGlobalModalToState());
-    this.optRadius.addEventListener('input', ()=> this.syncGlobalModalToState());
-    this.optHeight.addEventListener('input', ()=> this.syncGlobalModalToState());
-
-    // buttons
-    this.btnAdd.addEventListener('click', ()=> this.addRow());
-    this.btnOpenGlobal.addEventListener('click', ()=> this.openGlobalSettings());
-
-    this.btnToggleAll.addEventListener("click", ()=>{
-      this.globalPlaying = !this.globalPlaying;
-
-      if (this.globalPlaying){
-        this.prepareSpeedsForAll();
-
-        for (const r of this.rows){
-          const info = this.getCycleInfo(r);
-          r.animPlaying = info.valid && info.edges > 0;
-          r.animProgressEdges = 0.0;
-
-          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
-          if (card && card._setAnimIcon) card._setAnimIcon();
-        }
-
-        this.btnToggleAll.textContent = "⏸ 全アニメ停止";
-        this.hidePickedNM();
-        this.requestDrawAll();
-
-        if (this.anyAnimationPlaying() && !this.rafAnim){
-          this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
-        }
-      } else {
-        for (const r of this.rows){
-          r.animPlaying = false;
-          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
-          if (card && card._setAnimIcon) card._setAnimIcon();
-        }
-        this.btnToggleAll.textContent = "▶ 全アニメ再生";
-        this.requestDrawAll();
-      }
-    });
-
-    this.btnSave.addEventListener('click', ()=>{
-      for (const r of this.rows){
-        const info = this.getCycleInfo(r);
-        if (info.valid && info.edges > 0){
-          this.rowBuilder.setRowLineProgress(r, info.edges);
-        }
-      }
-      this.three.render();
-
-      const url = this.three.renderer.domElement.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = '3d-string-art.png';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    });
-
-    this.btnReset.addEventListener('click', ()=> this.resetAll());
-
-    window.addEventListener('resize', ()=>{
-      this.requestDrawAll();
-    });
-
-    // --- 線クリック判定（ドラッグと衝突しないよう click で） ---
-    let downX = 0, downY = 0;
-    this.stage.addEventListener('pointerdown', (e)=>{
-      downX = e.clientX;
-      downY = e.clientY;
-    });
-
-    this.stage.addEventListener('click', (e)=>{
-      // 左クリックのみ（右ドラッグ=パンと衝突させない）
-      if (e.button !== 0) return;
-
-      // ドラッグ後の click を無視（回転/パンの邪魔をしない）
-      const dx = e.clientX - downX;
-      const dy = e.clientY - downY;
-      if ((dx*dx + dy*dy) > 9) return; // 3px超ならドラッグ扱い
-
-      const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
-      const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
-
-      if (!hitLine){
-        this.hidePickedNM();
-        return;
-      }
-
-      const rowId = hitLine.userData.rowId;
-      const row = this.rows.find(r=>r.id===rowId);
-      if (!row || !Number.isInteger(row.N) || !Number.isInteger(row.M)){
-        this.hidePickedNM();
-        return;
-      }
-      this.showPickedNM(row.N, row.M);
-    });
-
-    // --- ダブルクリックで画角を最初に戻す ---
-    this.stage.addEventListener('dblclick', (e)=>{
-      e.preventDefault();
-      this.hidePickedNM();
-      this.three.resetViewToFit(this.globalState.radius, this.globalState.height);
-      this.requestDrawAll();
-    });
   }
 
   resetAll(){
@@ -1719,7 +1538,133 @@ class StringArt3DApp{
     this.addRow({ N:null, M:null, start:this.DEFAULT_START, animTimeSec:this.DEFAULT_ANIM_TIME, labelSizePx: this.DEFAULT_LABEL_SIZE });
 
     this.hudText.textContent = "N/M を入力して描画します。";
-    this.requestDrawAll();
+    this.redrawAll();
+  }
+
+  _installEvents(){
+    // row modal
+    this.rowModalClose.addEventListener('click', ()=> this.closeRowSettings());
+    this.rowModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.rowModalOverlay) this.closeRowSettings(); });
+
+    [
+      this.optVisible, this.optShowPoints, this.optShowLabels, this.optLabelSize,
+      this.optLineColor, this.optPointColor, this.optAnimTime, this.optStart
+    ].forEach(el=>{
+      el.addEventListener('input', ()=> this.syncRowModalToRow());
+      el.addEventListener('change', ()=> this.syncRowModalToRow());
+    });
+
+    // global modal
+    this.globalModalClose.addEventListener('click', ()=> this.closeGlobalSettings());
+    this.globalModalOverlay.addEventListener('click', (e)=>{ if (e.target === this.globalModalOverlay) this.closeGlobalSettings(); });
+
+    this.optTheme.addEventListener('change', ()=> this.syncGlobalModalToState());
+    this.optCircleColor.addEventListener('input', ()=> this.syncGlobalModalToState());
+    this.optRadius.addEventListener('input', ()=> this.syncGlobalModalToState());
+    this.optHeight.addEventListener('input', ()=> this.syncGlobalModalToState());
+
+    // buttons
+    this.btnAdd.addEventListener('click', ()=> this.addRow());
+    this.btnOpenGlobal.addEventListener('click', ()=> this.openGlobalSettings());
+    this.btnReset.addEventListener('click', ()=> this.resetAll());
+
+    // 全アニメ
+    this.btnToggleAll.addEventListener("click", ()=>{
+      this.globalPlaying = !this.globalPlaying;
+
+      if (this.globalPlaying){
+        this.prepareSpeedsForAll();
+
+        for (const r of this.rows){
+          const info = this.getCycleInfo(r);
+          r.animPlaying = info.valid && info.edges > 0;
+          r.animProgressEdges = 0.0;
+
+          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
+          if (card && card._setAnimIcon) card._setAnimIcon();
+        }
+
+        this.btnToggleAll.textContent = "⏸ 全アニメ停止";
+        this.hidePickedNM();
+        this.redrawAll();
+
+        if (this.anyAnimationPlaying() && !this.rafAnim){
+          this.rafAnim = requestAnimationFrame((t)=>this._tick(t));
+        }
+      } else {
+        for (const r of this.rows){
+          r.animPlaying = false;
+          const card = this.rowsEl.querySelector(`.rowCard[data-row-id="${r.id}"]`);
+          if (card && card._setAnimIcon) card._setAnimIcon();
+        }
+        this.btnToggleAll.textContent = "▶ 全アニメ再生";
+        this.redrawAll();
+      }
+    });
+
+    // PNG保存
+    this.btnSave.addEventListener('click', ()=>{
+      for (const r of this.rows){
+        const info = this.getCycleInfo(r);
+        if (info.valid && info.edges > 0){
+          this.rowBuilder.setRowLineProgress(r, info.edges);
+        }
+      }
+      this.three.render();
+
+      const url = this.three.renderer.domElement.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '3d-string-art.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+
+    // resize
+    window.addEventListener('resize', ()=>{
+      this.redrawAll();
+    });
+
+    // クリック判定（ドラッグと競合しない）
+    let downX = 0, downY = 0;
+    this.stage.addEventListener('pointerdown', (e)=>{
+      downX = e.clientX;
+      downY = e.clientY;
+    });
+
+    this.stage.addEventListener('click', (e)=>{
+      if (e.button !== 0) return;
+
+      const dx = e.clientX - downX;
+      const dy = e.clientY - downY;
+      if ((dx*dx + dy*dy) > 9) return; // 3px超はドラッグ扱い
+
+      const lineObjects = this.rows.map(r=>r.pathLine).filter(Boolean);
+      const hitLine = this.three.pickLine(e.clientX, e.clientY, lineObjects);
+
+      if (!hitLine){
+        this.hidePickedNM();
+        return;
+      }
+
+      const rowId = hitLine.userData.rowId;
+      const row = this.rows.find(r=>r.id===rowId);
+      if (!row || !Number.isInteger(row.N) || !Number.isInteger(row.M)){
+        this.hidePickedNM();
+        return;
+      }
+      this.showPickedNM(row.N, row.M);
+    });
+
+    // ★ ダブルクリックで初期画角へ
+    this.stage.addEventListener('dblclick', (e)=>{
+      e.preventDefault();
+      this.hidePickedNM();
+      this.three.resetViewToFit(this.globalState.radius, this.globalState.height);
+      // resetViewToFit 内で onViewChange が走るので render 済みだが、念のため
+      this.three.render();
+    });
   }
 }
 </script>
