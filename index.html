@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（正 N/M）</title>
+  <title>3D ストリングアート（正 N/M角形）</title>
 
   <style>
     :root{
@@ -190,7 +190,7 @@
       color: var(--hudFg);
       padding:12px 16px;
       border-radius:14px;
-      font-size:15px;     /* 少し大きめ */
+      font-size:20px;     /* 少し大きめ */
       font-weight:600;
       letter-spacing:0.03em;
       pointer-events:none;
@@ -434,7 +434,7 @@ window.addEventListener("load", async () => {
     new StringArt3DApp({ threeUrl }).boot();
   }catch(e){
     console.error(e);
-    alert("起動に失敗しました（three.min.js を読み込めませんでした）。\nコンソールを確認してください。");
+    alert("起動に失敗しました。");
   }
 });
 
@@ -1293,7 +1293,7 @@ class StringArt3DApp{
         meta.textContent = ``;
         return;
       }
-      if (N < 3){ meta.textContent = `N は 3 以上`; return; }
+      if (N < 2){ meta.textContent = `N は 2 以上`; return; }
       if (M < 1){ meta.textContent = `M は 1 以上`; return; }
       const info = app.getCycleInfo(r);
       const sw = `<span class="swatch" style="background:${r.lineColor}"></span>`;
