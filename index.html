@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>3D ストリングアート（円柱 + N/M + 規則フィルタ）</title>
+  <title>3D ストリングアート（円柱 + 正 N/M）</title>
   <style>
     :root{
       --bg:#0b0f17;
@@ -150,11 +150,11 @@
       <div class="row">
         <div class="field">
           <div class="label">N（分割数）</div>
-          <input id="inN" type="number" min="3" step="1" value="24" />
+          <input id="inN" type="number" min="3" step="1" value="30" />
         </div>
         <div class="field">
           <div class="label">M（ステップ）</div>
-          <input id="inM" type="number" min="0" step="1" value="7" />
+          <input id="inM" type="number" min="0" step="1" value="3" />
         </div>
       </div>
 
@@ -174,7 +174,7 @@
           <div class="label">上面ピンの条件</div>
           <select id="selTop">
             <option value="all">全て</option>
-            <option value="even">偶数のみ</option>
+            <option value="even" selected>偶数のみ</option>
             <option value="odd">奇数のみ</option>
             <option value="mod">mod k = r</option>
           </select>
@@ -184,7 +184,7 @@
           <select id="selBottom">
             <option value="all">全て</option>
             <option value="even">偶数のみ</option>
-            <option value="odd">奇数のみ</option>
+            <option value="odd" selected>奇数のみ</option>
             <option value="mod">mod k = r</option>
           </select>
         </div>
@@ -225,7 +225,7 @@
 
       <div class="row">
         <div class="field">
-          <div class="label">糸の太さ</div>
+          <div class="label">糸の太さ（※Lineでは環境依存で効かないことがあります）</div>
           <input id="inLineW" type="number" min="0.5" step="0.5" value="1.5" />
         </div>
         <div class="field">
@@ -249,8 +249,8 @@
       </div>
 
       <div class="tiny">
-        ・フィルタで許可されない点に当たった場合は、底面側は「最も近い許可点」にスナップします（角度距離最小）。<br/>
-        ・糸は最小構成として LineSegments で描画（軽量）。見た目を糸っぽくする Tube 化は次段階で可能。
+        ・フィルタに合わない点は、底面側を「最も近い許可点」へスナップします（角度距離最小）。<br/>
+        ・糸は最小構成として LineSegments で描画（軽量）。「太さ」を確実にしたいなら Tube化が必要です。
       </div>
     </div>
 
@@ -259,20 +259,22 @@
 
   <div class="viewer">
     <canvas id="stage"></canvas>
-    <div class="hud" id="hud">N/M と規則を反映してください</div>
+    <div class="hud" id="hud">読み込み中...</div>
   </div>
 </div>
 
-<!-- Three.js -->
-<script type="module">
-  import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-  import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js";
+<!-- Three.js (non-module / GitHub Pagesで安定) -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
 
+<script>
+(() => {
   // -----------------------------
   // Utilities
   // -----------------------------
   const TAU = Math.PI * 2;
   const mod = (n, m) => ((n % m) + m) % m;
+
   const gcd = (a, b) => {
     a = Math.abs(a); b = Math.abs(b);
     while (b !== 0) { const t = a % b; a = b; b = t; }
@@ -290,7 +292,6 @@
     return Math.max(min, Math.min(max, v));
   }
 
-  // "許可されるインデックスか" 判定
   function makeFilter(kind, k, r){
     k = Math.max(2, Math.floor(Number(k) || 2));
     r = mod(Math.floor(Number(r) || 0), k);
@@ -307,12 +308,9 @@
     return arr;
   }
 
-  // 底面インデックス j が許可されないとき、最も近い許可点へスナップ（角度距離最小）
-  // 角度は 2π * i/N なので、距離は mod距離（周回）でOK
   function snapToAllowed(N, j, allowed){
     if (!allowed.length) return null;
     const jj = mod(j, N);
-    // 二分探索っぽくしてもいいが、最小構成は線数が少なめ想定なので線形で十分
     let best = allowed[0];
     let bestD = Infinity;
     for (const a of allowed){
@@ -345,7 +343,7 @@
   const inBotR = document.getElementById("inBotR");
   const colLine = document.getElementById("colLine");
   const colPin = document.getElementById("colPin");
-  const inLineW = document.getElementById("inLineW");
+  const inLineW = document.getElementById("inLineW"); // NOTE: Lineでは太さが効かない環境あり
   const inAnimT = document.getElementById("inAnimT");
   const rngCyl = document.getElementById("rngCyl");
   const selTheme = document.getElementById("selTheme");
@@ -362,7 +360,7 @@
     canvas: cv,
     antialias: true,
     alpha: true,
-    preserveDrawingBuffer: true, // スクショ
+    preserveDrawingBuffer: true, // スクショ用
   });
   renderer.setPixelRatio(Math.min(2.5, window.devicePixelRatio || 1));
 
@@ -371,31 +369,26 @@
   const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
   camera.position.set(7, 6, 9);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
 
-  // Lighting
-  const amb = new THREE.AmbientLight(0xffffff, 0.55);
-  scene.add(amb);
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
   const dir = new THREE.DirectionalLight(0xffffff, 0.85);
   dir.position.set(6, 10, 8);
   scene.add(dir);
 
-  // Root group
   const root = new THREE.Group();
   scene.add(root);
 
-  // Objects (regenerated)
-  let cylMesh = null;
-  let pinsTop = null;
-  let pinsBottom = null;
+  // Objects
   let lines = null;
+  let totalSegments = 0;
 
   // Animation state
   let isPlaying = false;
   let startTime = 0;
-  let totalSegments = 0;
   let animDuration = 7.0;
 
   // -----------------------------
@@ -415,7 +408,6 @@
       document.documentElement.style.setProperty("--card", "#ffffff");
       document.documentElement.style.setProperty("--inputBg", "#ffffff");
       hud.classList.add("light");
-
       scene.background = new THREE.Color("#ffffff");
     } else {
       document.documentElement.style.setProperty("--bg", "#0b0f17");
@@ -430,32 +422,75 @@
       document.documentElement.style.setProperty("--card", "rgba(255,255,255,.04)");
       document.documentElement.style.setProperty("--inputBg", "rgba(0,0,0,.25)");
       hud.classList.remove("light");
-
       scene.background = new THREE.Color("#0b0f17");
     }
   }
 
   // -----------------------------
-  // Build geometry
+  // Build helpers
   // -----------------------------
+  function disposeObject(obj){
+    obj.traverse((x)=>{
+      if (x.geometry) x.geometry.dispose();
+      if (x.material){
+        if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
+        else x.material.dispose();
+      }
+    });
+  }
+
   function clearRoot(){
     while (root.children.length){
       const obj = root.children.pop();
-      obj.traverse((x)=>{
-        if (x.geometry) x.geometry.dispose();
-        if (x.material){
-          if (Array.isArray(x.material)) x.material.forEach(m=>m.dispose());
-          else x.material.dispose();
-        }
-      });
+      disposeObject(obj);
     }
-    cylMesh = pinsTop = pinsBottom = lines = null;
+    lines = null;
+    totalSegments = 0;
+  }
+
+  function buildCylinder(R, H, opacity){
+    const g = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
+    const m = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: clampNum(opacity, 0, 1),
+      roughness: 0.15,
+      metalness: 0.0,
+      transmission: 0.9,
+      thickness: 0.3,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(g, m);
+    root.add(mesh);
+
+    // 上下面リング（ガイド）
+    const ringMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent:true, opacity: 0.20 });
+    const seg = 128;
+
+    function ring(z){
+      const pts = [];
+      for (let k=0;k<=seg;k++){
+        const a = TAU * (k/seg);
+        pts.push(R*Math.cos(a), R*Math.sin(a), z);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      return new THREE.Line(geo, ringMat);
+    }
+    root.add(ring(+H/2));
+    root.add(ring(-H/2));
   }
 
   function buildPins(N, R, z, colorHex, pred){
     const allowed = buildAllowedList(N, pred);
+
     const g = new THREE.SphereGeometry(Math.max(0.03, R*0.02), 16, 16);
-    const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorHex), roughness: 0.25, metalness: 0.05 });
+    const m = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(colorHex),
+      roughness: 0.25,
+      metalness: 0.05
+    });
+
     const group = new THREE.Group();
     for (let i=0;i<N;i++){
       if (!pred(i)) continue;
@@ -467,67 +502,21 @@
       group.add(s);
     }
     root.add(group);
-    return { group, allowed };
+    return { allowed };
   }
 
-  function buildCylinder(R, H, opacity){
-    // 透明な円柱（最小構成：ガラスっぽい雰囲気）
-    const g = new THREE.CylinderGeometry(R, R, H, 64, 1, true);
-    const m = new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: clampNum(opacity, 0, 1),
-      roughness: 0.15,
-      metalness: 0.0,
-      transmission: 0.9,  // ガラス感（環境マップなしでも雰囲気出る）
-      thickness: 0.3,
-      side: THREE.DoubleSide,
-    });
-    const mesh = new THREE.Mesh(g, m);
-    root.add(mesh);
-
-    // 上下面のリング（薄いガイド）
-    const ringMat = new THREE.LineBasicMaterial({ color: new THREE.Color(0xffffff), transparent:true, opacity: 0.20 });
-    const ringGeo = new THREE.BufferGeometry();
-    const pts = [];
-    const seg = 128;
-    for (let k=0;k<=seg;k++){
-      const a = TAU * (k/seg);
-      pts.push(R*Math.cos(a), R*Math.sin(a), H/2);
-    }
-    ringGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    const ringTop = new THREE.Line(ringGeo, ringMat);
-
-    const ringGeo2 = ringGeo.clone();
-    const pos2 = ringGeo2.attributes.position;
-    for (let i=0;i<pos2.count;i++){
-      pos2.setZ(i, -H/2);
-    }
-    const ringBot = new THREE.Line(ringGeo2, ringMat);
-
-    root.add(ringTop);
-    root.add(ringBot);
-
-    return mesh;
-  }
-
-  function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor, lineWidth){
+  function buildLines(N, M, R, H, topAllowed, bottomAllowed, lineColor){
     const step = mod(M, N);
-
-    // 上面：i は topAllowed のみ採用
-    // 底面：j=f(i) が bottomAllowedに無いならスナップ
-    const topPred = (i)=> topAllowed.includes(i);
     const bottomSet = new Set(bottomAllowed);
-
-    // 速度のため bottomAllowed を配列のまま使う（snapが走査）
-    const positions = [];
 
     const zTop = +H/2;
     const zBot = -H/2;
 
+    const positions = [];
     let count = 0;
+
     for (let i=0;i<N;i++){
-      if (!topPred(i)) continue;
+      if (!topAllowed.includes(i)) continue;
 
       const j0 = mod(i + step, N);
       const j = bottomSet.has(j0) ? j0 : snapToAllowed(N, j0, bottomAllowed);
@@ -539,19 +528,15 @@
       const ax = R*Math.cos(a), ay = R*Math.sin(a);
       const bx = R*Math.cos(b), by = R*Math.sin(b);
 
-      positions.push(ax, ay, zTop);
-      positions.push(bx, by, zBot);
+      // segment: (ax,ay,zTop) -> (bx,by,zBot)
+      positions.push(ax, ay, zTop, bx, by, zBot);
       count++;
     }
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setDrawRange(0, 0); // アニメで増やす
 
-    // drawRange をアニメで変える
-    geo.setDrawRange(0, 0);
-
-    // LineSegments の太さは WebGL の都合で platform依存のことが多い（太さが効かないことあり）
-    // そこで「最小構成」としては lineWidth を HUD/メタに反映し、将来 Tube 化で対応が現実的
     const mat = new THREE.LineBasicMaterial({
       color: new THREE.Color(lineColor),
       transparent: true,
@@ -561,30 +546,31 @@
     const obj = new THREE.LineSegments(geo, mat);
     root.add(obj);
 
-    // 補助：太さが効かない場合のために “明るさ” で雰囲気調整できるようにする
-    mat.userData.requestedLineWidth = lineWidth;
-
-    totalSegments = count; // 1 segment = 2 vertices
+    totalSegments = count;
     return obj;
   }
 
-  function updateMetaUI(params){
-    const { N, M, step, d, L, topCount, botCount, segCount } = params;
+  function setLineProgress(p){
+    if (!lines) return;
+    const geo = lines.geometry;
+    const segToShow = Math.floor(Math.max(0, Math.min(1, p)) * totalSegments);
+    geo.setDrawRange(0, segToShow * 2); // LineSegments: 2 vertices per segment
+  }
+
+  function updateMetaUI({N,M,step,d,L,topCount,botCount,segCount}){
     metaEl.innerHTML = `
-      <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=M mod N = ${step}</div>
-      <div><b>gcd(N,step)</b>=${d}（分裂成分の目安） / <b>L</b>=N/gcd(N,step)=${L}</div>
-      <div>上面の許可点: <b>${topCount}</b> / 底面の許可点: <b>${botCount}</b></div>
-      <div>張った糸（線分）: <b>${segCount}</b></div>
+      <div><b>N</b>=${N}, <b>M</b>=${M}, <b>step</b>=${step}</div>
+      <div><b>gcd(N,step)</b>=${d} / <b>L</b>=${L}</div>
+      <div>上面許可: <b>${topCount}</b> / 底面許可: <b>${botCount}</b></div>
+      <div>糸（線分）: <b>${segCount}</b></div>
     `;
   }
 
   function rebuild(){
-    // Read params
     const N = clampInt(inN.value, 3, 2000);
     const M = clampInt(inM.value, 0, 2000000);
     const R = clampNum(inR.value, 0.1, 50);
     const H = clampNum(inH.value, 0.1, 80);
-    const cylOpacity = clampNum(rngCyl.value, 0, 1);
 
     const topKind = selTop.value;
     const botKind = selBottom.value;
@@ -595,74 +581,45 @@
     const botR = clampInt(inBotR.value, 0, 2000000);
 
     const lineColor = colLine.value;
-    const pinColor = colPin.value;
-    const lineW = clampNum(inLineW.value, 0.5, 10);
+    const pinColor  = colPin.value;
+    const cylOpacity = clampNum(rngCyl.value, 0, 1);
 
     animDuration = clampNum(inAnimT.value, 0.2, 120);
 
-    // Theme
     applyTheme(selTheme.value);
 
-    // Clear
     clearRoot();
 
-    // Build
-    const zTop = +H/2;
-    const zBot = -H/2;
-
-    cylMesh = buildCylinder(R, H, cylOpacity);
+    buildCylinder(R, H, cylOpacity);
 
     const topPred = makeFilter(topKind, topK, topR);
     const botPred = makeFilter(botKind, botK, botR);
 
-    const topPins = buildPins(N, R, zTop, pinColor, topPred);
-    const botPins = buildPins(N, R, zBot, pinColor, botPred);
+    const topPins = buildPins(N, R, +H/2, pinColor, topPred);
+    const botPins = buildPins(N, R, -H/2, pinColor, botPred);
 
-    pinsTop = topPins.group;
-    pinsBottom = botPins.group;
+    lines = buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor);
 
     const step = mod(M, N);
     const d = gcd(N, step);
-    const L = (step === 0) ? 0 : (N / d);
+    const L = (step===0) ? 0 : (N/d);
 
-    lines = buildLines(N, M, R, H, topPins.allowed, botPins.allowed, lineColor, lineW);
-
-    // HUD
     hud.textContent = `N=${N}, M=${M}（step=${step}） / 上:${topKind} 下:${botKind}`;
-
     updateMetaUI({
-      N, M, step, d, L,
+      N,M,step,d,L,
       topCount: topPins.allowed.length,
       botCount: botPins.allowed.length,
       segCount: totalSegments
     });
 
-    // Animation reset
+    // アニメ停止＆全表示
     isPlaying = false;
     btnAnim.textContent = "▶ アニメ再生";
-    startTime = performance.now();
-    // draw all immediately
     setLineProgress(1.0);
   }
 
-  function setLineProgress(p){
-    if (!lines) return;
-    const geo = lines.geometry;
-    const maxSeg = totalSegments;           // segments
-    const segToShow = Math.floor(Math.max(0, Math.min(1, p)) * maxSeg);
-    // LineSegments: drawRange count is number of vertices to draw
-    geo.setDrawRange(0, segToShow * 2);
-    geo.attributes.position.needsUpdate = true;
-  }
-
-  function resetView(){
-    controls.reset();
-    camera.position.set(7, 6, 9);
-    controls.update();
-  }
-
   // -----------------------------
-  // Render loop
+  // Resize & loop
   // -----------------------------
   function resize(){
     const w = cv.clientWidth;
@@ -672,15 +629,14 @@
     camera.updateProjectionMatrix();
   }
 
-  function animate(t){
-    requestAnimationFrame(animate);
+  function loop(t){
+    requestAnimationFrame(loop);
     controls.update();
 
     if (isPlaying && lines){
       const elapsed = (t - startTime) / 1000;
       const p = Math.min(1, elapsed / animDuration);
       setLineProgress(p);
-
       if (p >= 1){
         isPlaying = false;
         btnAnim.textContent = "▶ アニメ再生";
@@ -690,14 +646,9 @@
     renderer.render(scene, camera);
   }
 
-  // -----------------------------
-  // Screenshot
-  // -----------------------------
   function savePNG(){
-    // draw full before shot
     setLineProgress(1.0);
     renderer.render(scene, camera);
-
     const url = renderer.domElement.toDataURL("image/png");
     const a = document.createElement("a");
     a.href = url;
@@ -721,37 +672,32 @@
       btnAnim.textContent = "⏸ アニメ停止";
     } else {
       btnAnim.textContent = "▶ アニメ再生";
-      // 停止時は途中のまま残す（仕様）
     }
   });
 
   btnReset.addEventListener("click", ()=>{
-    // reasonable defaults (偶奇例)
-    inN.value = "24";
-    inM.value = "7";
-    inR.value = "3.0";
-    inH.value = "4.0";
-    selTop.value = "even";
-    selBottom.value = "odd";
-    inTopK.value = "2"; inTopR.value = "0";
-    inBotK.value = "2"; inBotR.value = "1";
-    colLine.value = "#60a5fa";
-    colPin.value = "#e5e7eb";
-    inLineW.value = "1.5";
-    inAnimT.value = "7.0";
-    rngCyl.value = "0.18";
-    selTheme.value = "dark";
-    resetView();
+    inN.value="30"; inM.value="3";
+    inR.value="3.0"; inH.value="4.0";
+    selTop.value="even"; selBottom.value="odd";
+    inTopK.value="2"; inTopR.value="0";
+    inBotK.value="2"; inBotR.value="1";
+    colLine.value="#60a5fa";
+    colPin.value="#e5e7eb";
+    inLineW.value="1.5";
+    inAnimT.value="7.0";
+    rngCyl.value="0.18";
+    selTheme.value="dark";
+    controls.reset();
+    camera.position.set(7,6,9);
+    controls.update();
     rebuild();
   });
 
   btnShot.addEventListener("click", savePNG);
 
-  // apply on some inputs instantly (軽め)
-  [selTheme, rngCyl].forEach(el=>{
-    el.addEventListener("input", rebuild);
-    el.addEventListener("change", rebuild);
-  });
+  // テーマ変更は即反映（rebuildで確実）
+  selTheme.addEventListener("change", rebuild);
+  rngCyl.addEventListener("input", rebuild);
 
   window.addEventListener("resize", ()=>{ resize(); });
 
@@ -761,7 +707,8 @@
   applyTheme("dark");
   resize();
   rebuild();
-  requestAnimationFrame(animate);
+  requestAnimationFrame(loop);
+})();
 </script>
 </body>
 </html>
