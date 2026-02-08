@@ -188,9 +188,9 @@
       background: var(--hudBg);
       border:1px solid var(--hudBorder);
       color: var(--hudFg);
-      padding:12px 16px;
+      padding:24px 30px;
       border-radius:14px;
-      font-size:20px;     /* 少し大きめ */
+      font-size:40px;     /* 少し大きめ */
       font-weight:600;
       letter-spacing:0.03em;
       pointer-events:none;
@@ -201,7 +201,7 @@
       display:none;
     }
     .hud .nmBadge{
-      padding:6px 12px;
+      padding:12px 20px;
       border-radius:12px;
       border:1px solid rgba(255,255,255,.25);
       background: rgba(255,255,255,.08);
@@ -1110,7 +1110,7 @@ class StringArt3DApp{
   }
 
   showPickedNM(rowId, N, M){
-    this.hudNM.textContent = `#${rowId}  N = ${N},  M = ${M}`;
+    this.hudNM.textContent = `N = ${N},  M = ${M}`;
     this.hud.style.display = 'block';
   }
 
